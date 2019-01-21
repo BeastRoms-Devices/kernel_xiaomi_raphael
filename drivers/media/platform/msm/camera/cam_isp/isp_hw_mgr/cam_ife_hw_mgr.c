@@ -44,7 +44,7 @@
 	(CAM_ISP_PACKET_META_GENERIC_BLOB_COMMON + 1)
 
 #define CAM_ISP_GENERIC_BLOB_TYPE_MAX               \
-	(CAM_ISP_GENERIC_BLOB_TYPE_FE_CONFIG + 1)
+	(CAM_ISP_GENERIC_BLOB_TYPE_BW_CONFIG_V2 + 1)
 
 static uint32_t blob_type_hw_cmd_map[CAM_ISP_GENERIC_BLOB_TYPE_MAX] = {
 	CAM_ISP_HW_CMD_GET_HFR_UPDATE,
@@ -2203,6 +2203,7 @@ static int cam_ife_mgr_acquire(void *hw_mgr_priv,
 
 static int cam_isp_blob_bw_update(
 	struct cam_isp_bw_config              *bw_config,
+	struct cam_isp_bw_config_ab           *bw_config_ab,
 	struct cam_ife_hw_mgr_ctx             *ctx)
 {
 	struct cam_ife_hw_mgr_res             *hw_mgr_res;
@@ -2210,6 +2211,7 @@ static int cam_isp_blob_bw_update(
 	struct cam_vfe_bw_update_args          bw_upd_args;
 	uint64_t                               cam_bw_bps = 0;
 	uint64_t                               ext_bw_bps = 0;
+	uint64_t                               ext_bw_bps_ab = 0;
 	int                                    rc = -EINVAL;
 	uint32_t                               i;
 	bool                                   camif_l_bw_updated = false;
@@ -2239,6 +2241,8 @@ static int cam_isp_blob_bw_update(
 					bw_config->left_pix_vote.cam_bw_bps;
 					ext_bw_bps =
 					bw_config->left_pix_vote.ext_bw_bps;
+					ext_bw_bps_ab =
+					bw_config_ab->left_pix_vote_ab;
 
 					camif_l_bw_updated = true;
 				} else {
@@ -2249,6 +2253,8 @@ static int cam_isp_blob_bw_update(
 					bw_config->right_pix_vote.cam_bw_bps;
 					ext_bw_bps =
 					bw_config->right_pix_vote.ext_bw_bps;
+					ext_bw_bps_ab =
+					bw_config_ab->right_pix_vote_ab;
 
 					camif_r_bw_updated = true;
 				}
@@ -2264,6 +2270,8 @@ static int cam_isp_blob_bw_update(
 					bw_config->rdi_vote[idx].cam_bw_bps;
 				ext_bw_bps =
 					bw_config->rdi_vote[idx].ext_bw_bps;
+				ext_bw_bps_ab =
+					bw_config_ab->rdi_vote_ab[idx];
 			} else if (hw_mgr_res->res_id ==
 				CAM_ISP_HW_VFE_IN_CAMIF_LITE) {
 				if (i == CAM_ISP_HW_SPLIT_LEFT) {
@@ -2274,6 +2282,8 @@ static int cam_isp_blob_bw_update(
 					bw_config->left_pix_vote.cam_bw_bps;
 					ext_bw_bps =
 					bw_config->left_pix_vote.ext_bw_bps;
+					ext_bw_bps_ab =
+					bw_config_ab->left_pix_vote_ab;
 
 					camif_l_bw_updated = true;
 				} else {
@@ -2284,6 +2294,9 @@ static int cam_isp_blob_bw_update(
 					bw_config->right_pix_vote.cam_bw_bps;
 					ext_bw_bps =
 					bw_config->right_pix_vote.ext_bw_bps;
+					ext_bw_bps_ab =
+					bw_config_ab->right_pix_vote_ab;
+
 
 					camif_r_bw_updated = true;
 				}
@@ -2302,6 +2315,8 @@ static int cam_isp_blob_bw_update(
 
 				bw_upd_args.camnoc_bw_bytes = cam_bw_bps;
 				bw_upd_args.external_bw_bytes = ext_bw_bps;
+				bw_upd_args.external_bw_bytes_ab =
+					ext_bw_bps_ab;
 
 				rc = hw_intf->hw_ops.process_cmd(
 					hw_intf->hw_priv,
@@ -2352,10 +2367,15 @@ static int cam_ife_mgr_config_hw(void *hw_mgr_priv,
 	hw_update_data = (struct cam_isp_prepare_hw_update_data  *) cfg->priv;
 
 	for (i = 0; i < CAM_IFE_HW_NUM_MAX; i++) {
+		CAM_DBG(CAM_ISP, "hw_update_data->bw_config_valid[%d]:%d", i,
+			hw_update_data->bw_config_valid[i]);
 		if (hw_update_data->bw_config_valid[i] == true) {
 			rc = cam_isp_blob_bw_update(
 				(struct cam_isp_bw_config *)
-				&hw_update_data->bw_config[i], ctx);
+				&hw_update_data->bw_config[i],
+				(struct cam_isp_bw_config_ab *)
+				&hw_update_data->bw_config_ab[i],
+				ctx);
 			if (rc)
 				CAM_ERR(CAM_ISP, "Bandwidth Update Failed");
 			}
@@ -3558,9 +3578,9 @@ static int cam_isp_packet_generic_blob_handler(void *user_data,
 	}
 
 	if (blob_type >= CAM_ISP_GENERIC_BLOB_TYPE_MAX) {
-		CAM_ERR(CAM_ISP, "Invalid Blob Type %d Max %d", blob_type,
+		CAM_WARN(CAM_ISP, "Invalid Blob Type %d Max %d", blob_type,
 			CAM_ISP_GENERIC_BLOB_TYPE_MAX);
-		return -EINVAL;
+		return 0;
 	}
 
 	prepare = blob_info->prepare;
@@ -3606,11 +3626,35 @@ static int cam_isp_packet_generic_blob_handler(void *user_data,
 
 		prepare_hw_data = (struct cam_isp_prepare_hw_update_data  *)
 			prepare->priv;
-
 		memcpy(&prepare_hw_data->bw_config[bw_config->usage_type],
 			bw_config, sizeof(prepare_hw_data->bw_config[0]));
+		memset(&prepare_hw_data->bw_config_ab[bw_config->usage_type],
+			0, sizeof(prepare_hw_data->bw_config_ab[0]));
 		prepare_hw_data->bw_config_valid[bw_config->usage_type] = true;
 
+	}
+		break;
+	case CAM_ISP_GENERIC_BLOB_TYPE_BW_CONFIG_V2: {
+		struct cam_isp_bw_config_ab    *bw_config_ab =
+			(struct cam_isp_bw_config_ab *)blob_data;
+		struct cam_isp_prepare_hw_update_data   *prepare_hw_data;
+
+		CAM_DBG(CAM_ISP, "AB L:%lld R:%lld usage_type %d",
+			bw_config_ab->left_pix_vote_ab,
+			bw_config_ab->right_pix_vote_ab,
+			bw_config_ab->usage_type);
+
+		if (!prepare || !prepare->priv ||
+			(bw_config_ab->usage_type >= CAM_IFE_HW_NUM_MAX)) {
+			CAM_ERR(CAM_ISP, "Invalid inputs");
+			rc = -EINVAL;
+			break;
+		}
+		prepare_hw_data = (struct cam_isp_prepare_hw_update_data  *)
+			prepare->priv;
+
+		memcpy(&prepare_hw_data->bw_config_ab[bw_config_ab->usage_type],
+			bw_config_ab, sizeof(prepare_hw_data->bw_config_ab[0]));
 	}
 		break;
 	case CAM_ISP_GENERIC_BLOB_TYPE_UBWC_CONFIG: {
