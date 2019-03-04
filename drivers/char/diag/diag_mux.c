@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2017, 2019, The Linux Foundation. All rights reserved.
  * Copyright (C) 2019 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
@@ -136,9 +136,10 @@ int diag_mux_queue_read(int proc)
 int diag_mux_write(int proc, unsigned char *buf, int len, int ctx)
 {
 	struct diag_logger_t *logger = NULL;
-	int peripheral;
+	int peripheral = -EINVAL, type = -EINVAL, log_sink;
+	unsigned char *offset = NULL;
 
-	if (proc < 0 || proc >= NUM_MUX_PROC)
+	if (proc < 0 || proc >= NUM_MUX_PROC || !buf)
 		return -EINVAL;
 	if (!diag_mux)
 		return -EIO;
@@ -146,16 +147,38 @@ int diag_mux_write(int proc, unsigned char *buf, int len, int ctx)
 	peripheral = diag_md_get_peripheral(ctx);
 	if (peripheral < 0) {
 		DIAG_LOG(DIAG_DEBUG_PERIPHERALS,
-			"diag:%s:%d invalid peripheral = %d\n",
-			__func__, __LINE__, peripheral);
+			"diag: invalid peripheral = %d\n", peripheral);
 		return -EINVAL;
 	}
 
-	if (MD_PERIPHERAL_MASK(peripheral) & diag_mux->mux_mask)
+	if (MD_PERIPHERAL_MASK(peripheral) & diag_mux->mux_mask) {
 		logger = diag_mux->md_ptr;
-	else
+		log_sink = DIAG_MEMORY_DEVICE_MODE;
+	} else {
 		logger = diag_mux->usb_ptr;
+		log_sink = DIAG_USB_MODE;
+	}
 
+	if (!proc) {
+		type = GET_BUF_TYPE(ctx);
+		DIAG_LOG(DIAG_DEBUG_PERIPHERALS,
+			"diag: Packet from PD: %d, type: %d, len: %d to be written to %s\n",
+			peripheral, type, len,
+			(log_sink ? "MD_device" : "USB"));
+
+		if (type == TYPE_CMD) {
+			if (driver->p_hdlc_disabled[peripheral])
+				offset = buf + 4;
+			else
+				offset = buf;
+
+			DIAG_LOG(DIAG_DEBUG_CMD_INFO,
+				"diag: cmd rsp (%02x %02x %02x %02x) from PD: %d to be written to %s\n",
+				*(offset), *(offset+1), *(offset+2),
+				*(offset+3), peripheral,
+				(log_sink ? "MD_device" : "USB"));
+		}
+	}
 	if (logger && logger->log_ops && logger->log_ops->write)
 		return logger->log_ops->write(proc, buf, len, ctx);
 	return 0;
