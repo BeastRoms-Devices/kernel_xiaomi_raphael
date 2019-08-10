@@ -1,6 +1,5 @@
 /*
  * Copyright (C) 2017 Google, Inc.
- * Copyright (C) 2019 XiaoMi, Inc.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -51,7 +50,8 @@ struct binder_buffer {
 	unsigned free:1;
 	unsigned allow_user_free:1;
 	unsigned async_transaction:1;
-	unsigned debug_id:29;
+	unsigned free_in_progress:1;
+	unsigned debug_id:28;
 
 	struct binder_transaction *transaction;
 

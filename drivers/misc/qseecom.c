@@ -2,7 +2,6 @@
  * QTI Secure Execution Environment Communicator (QSEECOM) driver
  *
  * Copyright (c) 2012-2019, The Linux Foundation. All rights reserved.
- * Copyright (C) 2019 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -113,9 +112,6 @@
  */
 #define DEFAULT_CE_INFO_UNIT 0
 #define DEFAULT_NUM_CE_INFO_UNIT 1
-
-#define FDE_FLAG_POS    4
-#define ENABLE_KEY_WRAP_IN_KS    (1 << FDE_FLAG_POS)
 
 enum qseecom_clk_definitions {
 	CLK_DFAB = 0,
@@ -305,7 +301,6 @@ struct qseecom_control {
 	unsigned int ce_opp_freq_hz;
 	bool appsbl_qseecom_support;
 	uint32_t qsee_reentrancy_support;
-	bool enable_key_wrap_in_ks;
 
 	uint32_t app_block_ref_cnt;
 	wait_queue_head_t app_block_wq;
@@ -430,7 +425,6 @@ static int get_qseecom_keymaster_status(char *str)
 }
 __setup("androidboot.keymaster=", get_qseecom_keymaster_status);
 
-extern void read_qseelog_wakeup(void);
 
 #define QSEECOM_SCM_EBUSY_WAIT_MS 30
 #define QSEECOM_SCM_EBUSY_MAX_RETRY 67
@@ -1111,7 +1105,6 @@ static int qseecom_scm_call2(uint32_t svc_id, uint32_t tz_cmd_id,
 		svc_id, tz_cmd_id, qseos_cmd_id, smc_id, desc.arginfo);
 	pr_debug("scm_resp->result = 0x%x, scm_resp->resp_type = 0x%x, scm_resp->data = 0x%x\n",
 		scm_resp->result, scm_resp->resp_type, scm_resp->data);
-	read_qseelog_wakeup();
 	return ret;
 }
 
@@ -1381,7 +1374,7 @@ static int qseecom_register_listener(struct qseecom_dev_handle *data,
 			pr_debug("register %d has to wait\n",
 				rcvd_lstnr.listener_id);
 			mutex_unlock(&listener_access_lock);
-			ret = wait_event_interruptible(
+			ret = wait_event_freezable(
 				qseecom.register_lsnr_pending_wq,
 				list_empty(
 				&qseecom.unregister_lsnr_pending_list_head));
@@ -1455,7 +1448,7 @@ static int __qseecom_unregister_listener(struct qseecom_dev_handle *data,
 	}
 
 	while (atomic_read(&data->ioctl_count) > 1) {
-		if (wait_event_interruptible(data->abort_wq,
+		if (wait_event_freezable(data->abort_wq,
 				atomic_read(&data->ioctl_count) <= 1)) {
 			pr_err("Interrupted from abort\n");
 			ret = -ERESTARTSYS;
@@ -1560,7 +1553,7 @@ static void __wakeup_unregister_listener_kthread(void)
 static int __qseecom_unregister_listener_kthread_func(void *data)
 {
 	while (!kthread_should_stop()) {
-		wait_event_interruptible(
+		wait_event_freezable(
 			qseecom.unregister_lsnr_kthread_wq,
 			atomic_read(&qseecom.unregister_lsnr_kthread_state)
 				== LSNR_UNREG_KT_WAKEUP);
@@ -1980,14 +1973,14 @@ static int __qseecom_process_incomplete_cmd(struct qseecom_dev_handle *data,
 			 * send_resp_flag.
 			 */
 			if (!qseecom.qsee_reentrancy_support &&
-				!wait_event_interruptible(qseecom.send_resp_wq,
+				!wait_event_freezable(qseecom.send_resp_wq,
 				__qseecom_listener_has_sent_rsp(
 						data, ptr_svc))) {
 				break;
 			}
 
 			if (qseecom.qsee_reentrancy_support &&
-				!wait_event_interruptible(qseecom.send_resp_wq,
+				!wait_event_freezable(qseecom.send_resp_wq,
 				__qseecom_reentrancy_listener_has_sent_rsp(
 						data, ptr_svc))) {
 				break;
@@ -2178,7 +2171,7 @@ static int __qseecom_process_reentrancy_blocked_on_listener(
 			ptr_app->app_blocked = true;
 			mutex_unlock(&listener_access_lock);
 			mutex_unlock(&app_access_lock);
-			wait_event_interruptible(
+			wait_event_freezable(
 				list_ptr->listener_block_app_wq,
 				!list_ptr->listener_in_use);
 			mutex_lock(&app_access_lock);
@@ -2311,7 +2304,7 @@ static int __qseecom_reentrancy_process_incomplete_cmd(
 		mutex_unlock(&listener_access_lock);
 		mutex_unlock(&app_access_lock);
 		do {
-			if (!wait_event_interruptible(qseecom.send_resp_wq,
+			if (!wait_event_freezable(qseecom.send_resp_wq,
 				__qseecom_reentrancy_listener_has_sent_rsp(
 						data, ptr_svc))) {
 				break;
@@ -2466,8 +2459,7 @@ static void __qseecom_reentrancy_check_if_no_app_blocked(uint32_t smc_id)
 			sigprocmask(SIG_SETMASK, &new_sigset, &old_sigset);
 			mutex_unlock(&app_access_lock);
 			do {
-				if (!wait_event_interruptible(
-					qseecom.app_block_wq,
+				if (!wait_event_freezable(qseecom.app_block_wq,
 					(qseecom.app_block_ref_cnt == 0)))
 					break;
 			} while (1);
@@ -2495,8 +2487,7 @@ static void __qseecom_reentrancy_check_if_this_app_blocked(
 			sigprocmask(SIG_SETMASK, &new_sigset, &old_sigset);
 			mutex_unlock(&app_access_lock);
 			do {
-				if (!wait_event_interruptible(
-					qseecom.app_block_wq,
+				if (!wait_event_freezable(qseecom.app_block_wq,
 					(!ptr_app->app_blocked &&
 					qseecom.app_block_ref_cnt <= 1)))
 					break;
@@ -2835,7 +2826,7 @@ static int __qseecom_cleanup_app(struct qseecom_dev_handle *data)
 	if (qseecom.qsee_reentrancy_support)
 		mutex_unlock(&app_access_lock);
 	while (atomic_read(&data->ioctl_count) > 1) {
-		if (wait_event_interruptible(data->abort_wq,
+		if (wait_event_freezable(data->abort_wq,
 					atomic_read(&data->ioctl_count) <= 1)) {
 			pr_err("Interrupted from abort\n");
 			ret = -ERESTARTSYS;
@@ -4145,7 +4136,7 @@ static int qseecom_receive_req(struct qseecom_dev_handle *data)
 	mutex_unlock(&listener_access_lock);
 
 	while (1) {
-		if (wait_event_interruptible(this_lstnr->rcv_req_wq,
+		if (wait_event_freezable(this_lstnr->rcv_req_wq,
 				__qseecom_listener_has_rcvd_req(data,
 				this_lstnr))) {
 			pr_debug("Interrupted: exiting Listener Service = %d\n",
@@ -6187,9 +6178,6 @@ static int qseecom_create_key(struct qseecom_dev_handle *data,
 		flags |= QSEECOM_ICE_FDE_KEY_SIZE_32_BYTE;
 	else
 		flags |= QSEECOM_ICE_FDE_KEY_SIZE_16_BYTE;
-
-	if (qseecom.enable_key_wrap_in_ks == true)
-		flags |= ENABLE_KEY_WRAP_IN_KS;
 
 	generate_key_ireq.flags = flags;
 	generate_key_ireq.qsee_command_id = QSEOS_GENERATE_KEY;
@@ -8943,14 +8931,6 @@ static int qseecom_probe(struct platform_device *pdev)
 		} else {
 			pr_warn("qseecom.qsee_reentrancy_support = %d\n",
 				qseecom.qsee_reentrancy_support);
-		}
-
-		qseecom.enable_key_wrap_in_ks =
-			of_property_read_bool((&pdev->dev)->of_node,
-					"qcom,enable-key-wrap-in-ks");
-		if (qseecom.enable_key_wrap_in_ks) {
-			pr_warn("qseecom.enable_key_wrap_in_ks = %d\n",
-					qseecom.enable_key_wrap_in_ks);
 		}
 
 		/*
