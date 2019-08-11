@@ -168,7 +168,7 @@ enum pmic_model {
 };
 
 #define HARDWARE_PLATFORM_UNKNOWN 0
-#define HARDWARE_PLATFORM_RAPHAEL 1
+#define HARDWARE_PLATFORM_RAPHAEL 4
 
 uint32_t get_hw_version_platform(void);
 
