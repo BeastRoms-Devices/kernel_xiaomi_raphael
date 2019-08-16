@@ -1635,9 +1635,6 @@ static int smb5_wireless_set_prop(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_WIRELESS_POWER_GOOD_EN:
 		smblib_set_wirless_power_good_enable(chg, val);
 		break;
-	case POWER_SUPPLY_PROP_INPUT_VOLTAGE_REGULATION:
-		rc = smblib_get_prop_voltage_wls_output(chg, val);
-		break;
 	default:
 		return -EINVAL;
 	}
