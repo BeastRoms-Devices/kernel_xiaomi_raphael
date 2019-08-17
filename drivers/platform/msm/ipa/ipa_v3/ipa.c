@@ -3764,6 +3764,9 @@ void ipa3_disable_clks(void)
 	IPADBG("disabling IPA clocks and bus voting\n");
 
 	ipa3_ctx->ctrl->ipa3_disable_clks();
+	
+	if (ipa3_ctx->use_ipa_pm)
+		ipa_pm_set_clock_index(0);
 
 	if (msm_bus_scale_client_update_request(ipa3_ctx->ipa_bus_hdl, 0))
 		WARN(1, "bus scaling failed");
