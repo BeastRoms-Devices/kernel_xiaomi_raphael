@@ -113,6 +113,9 @@
 #define DEFAULT_CE_INFO_UNIT 0
 #define DEFAULT_NUM_CE_INFO_UNIT 1
 
+#define FDE_FLAG_POS    4
+#define ENABLE_KEY_WRAP_IN_KS    (1 << FDE_FLAG_POS)
+
 enum qseecom_clk_definitions {
 	CLK_DFAB = 0,
 	CLK_SFPB,
@@ -301,6 +304,7 @@ struct qseecom_control {
 	unsigned int ce_opp_freq_hz;
 	bool appsbl_qseecom_support;
 	uint32_t qsee_reentrancy_support;
+	bool enable_key_wrap_in_ks;
 
 	uint32_t app_block_ref_cnt;
 	wait_queue_head_t app_block_wq;
@@ -339,7 +343,6 @@ struct qseecom_client_handle {
 	char app_name[MAX_APP_NAME_SIZE];
 	u32  app_arch;
 	struct qseecom_sec_buf_fd_info sec_buf_fd[MAX_ION_FD];
-	bool from_smcinvoke;
 };
 
 struct qseecom_listener_handle {
@@ -543,7 +546,7 @@ static int qseecom_scm_call2(uint32_t svc_id, uint32_t tz_cmd_id,
 			smc_id = TZ_OS_APP_SHUTDOWN_ID;
 			desc.arginfo = TZ_OS_APP_SHUTDOWN_ID_PARAM_ID;
 			desc.args[0] = req->app_id;
-			ret = scm_call2(smc_id, &desc);
+			ret = __qseecom_scm_call2_locked(smc_id, &desc);
 			break;
 		}
 		case QSEOS_APP_LOOKUP_COMMAND: {
@@ -1154,9 +1157,9 @@ static int qseecom_dmabuf_cache_operations(struct dma_buf *dmabuf,
 		goto exit;
 
 	switch (cache_op) {
-	case QSEECOM_CACHE_CLEAN: /* Doing CLEAN and INVALIDATE */
-		dma_buf_begin_cpu_access(dmabuf, DMA_BIDIRECTIONAL);
-		dma_buf_end_cpu_access(dmabuf, DMA_BIDIRECTIONAL);
+	case QSEECOM_CACHE_CLEAN:
+		dma_buf_begin_cpu_access(dmabuf, DMA_TO_DEVICE);
+		dma_buf_end_cpu_access(dmabuf, DMA_TO_DEVICE);
 		break;
 	case QSEECOM_CACHE_INVALIDATE:
 		dma_buf_begin_cpu_access(dmabuf, DMA_TO_DEVICE);
@@ -2108,7 +2111,6 @@ static int __qseecom_process_reentrancy_blocked_on_listener(
 	sigset_t old_sigset;
 	unsigned long flags;
 	bool found_app = false;
-	struct qseecom_registered_app_list dummy_app_entry = { {NULL} };
 
 	if (!resp || !data) {
 		pr_err("invalid resp or data pointer\n");
@@ -2118,31 +2120,24 @@ static int __qseecom_process_reentrancy_blocked_on_listener(
 
 	/* find app_id & img_name from list */
 	if (!ptr_app) {
-		if (data->client.from_smcinvoke) {
-			pr_debug("This request is from smcinvoke\n");
-			ptr_app = &dummy_app_entry;
-			ptr_app->app_id = data->client.app_id;
-		} else {
-			spin_lock_irqsave(&qseecom.registered_app_list_lock,
-						flags);
-			list_for_each_entry(ptr_app,
-				&qseecom.registered_app_list_head, list) {
-				if ((ptr_app->app_id == data->client.app_id) &&
-					(!strcmp(ptr_app->app_name,
+		spin_lock_irqsave(&qseecom.registered_app_list_lock, flags);
+		list_for_each_entry(ptr_app, &qseecom.registered_app_list_head,
+							list) {
+			if ((ptr_app->app_id == data->client.app_id) &&
+				(!strcmp(ptr_app->app_name,
 						data->client.app_name))) {
-					found_app = true;
-					break;
-				}
+				found_app = true;
+				break;
 			}
-			spin_unlock_irqrestore(
-				&qseecom.registered_app_list_lock, flags);
-			if (!found_app) {
-				pr_err("app_id %d (%s) is not found\n",
-					data->client.app_id,
-					(char *)data->client.app_name);
-				ret = -ENOENT;
-				goto exit;
-			}
+		}
+		spin_unlock_irqrestore(&qseecom.registered_app_list_lock,
+					flags);
+		if (!found_app) {
+			pr_err("app_id %d (%s) is not found\n",
+				data->client.app_id,
+				(char *)data->client.app_name);
+			ret = -ENOENT;
+			goto exit;
 		}
 	}
 
@@ -2849,7 +2844,6 @@ static int qseecom_unload_app(struct qseecom_dev_handle *data,
 	bool unload = false;
 	bool found_app = false;
 	bool found_dead_app = false;
-	bool scm_called = false;
 
 	if (!data) {
 		pr_err("Invalid/uninitialized device handle\n");
@@ -2908,12 +2902,11 @@ static int qseecom_unload_app(struct qseecom_dev_handle *data,
 		ret = qseecom_scm_call(SCM_SVC_TZSCHEDULER, 1, &req,
 				sizeof(struct qseecom_unload_app_ireq),
 				&resp, sizeof(resp));
-		scm_called = true;
 		if (ret) {
 			pr_err("scm_call to unload app (id = %d) failed\n",
 								req.app_id);
 			ret = -EFAULT;
-			goto scm_exit;
+			goto unload_exit;
 		} else {
 			pr_warn("App id %d now unloaded\n", req.app_id);
 		}
@@ -2921,7 +2914,7 @@ static int qseecom_unload_app(struct qseecom_dev_handle *data,
 			pr_err("app (%d) unload_failed!!\n",
 					data->client.app_id);
 			ret = -EFAULT;
-			goto scm_exit;
+			goto unload_exit;
 		}
 		if (resp.result == QSEOS_RESULT_SUCCESS)
 			pr_debug("App (%d) is unloaded!!\n",
@@ -2931,35 +2924,11 @@ static int qseecom_unload_app(struct qseecom_dev_handle *data,
 			if (ret) {
 				pr_err("process_incomplete_cmd fail err: %d\n",
 									ret);
-				goto scm_exit;
+				goto unload_exit;
 			}
 		}
 	}
 
-scm_exit:
-	if (scm_called) {
-		/* double check if this app_entry still exists */
-		bool doublecheck = false;
-
-		spin_lock_irqsave(&qseecom.registered_app_list_lock, flags1);
-		list_for_each_entry(ptr_app,
-			&qseecom.registered_app_list_head, list) {
-			if ((ptr_app->app_id == data->client.app_id) &&
-				(!strcmp((void *)ptr_app->app_name,
-				(void *)data->client.app_name))) {
-				doublecheck = true;
-				break;
-			}
-		}
-		spin_unlock_irqrestore(&qseecom.registered_app_list_lock,
-								flags1);
-		if (!doublecheck) {
-			pr_warn("app %d(%s) entry is already removed\n",
-				data->client.app_id,
-				(char *)data->client.app_name);
-			found_app = false;
-		}
-	}
 unload_exit:
 	if (found_app) {
 		spin_lock_irqsave(&qseecom.registered_app_list_lock, flags1);
@@ -4237,7 +4206,7 @@ static int __qseecom_get_fw_size(const char *appname, uint32_t *fw_size,
 	int num_images = 0;
 
 	snprintf(fw_name, sizeof(fw_name), "%s.mdt", appname);
-	rc = request_firmware(&fw_entry, fw_name,  qseecom.pdev);
+	rc = request_firmware(&fw_entry, fw_name,  qseecom.dev);
 	if (rc) {
 		pr_err("error with request_firmware\n");
 		ret = -EIO;
@@ -4267,7 +4236,7 @@ static int __qseecom_get_fw_size(const char *appname, uint32_t *fw_size,
 	for (i = 0; i < num_images; i++) {
 		memset(fw_name, 0, sizeof(fw_name));
 		snprintf(fw_name, ARRAY_SIZE(fw_name), "%s.b%02d", appname, i);
-		ret = request_firmware(&fw_entry, fw_name, qseecom.pdev);
+		ret = request_firmware(&fw_entry, fw_name, qseecom.dev);
 		if (ret)
 			goto err;
 		if (*fw_size > U32_MAX - fw_entry->size) {
@@ -4303,7 +4272,7 @@ static int __qseecom_get_fw_data(const char *appname, u8 *img_data,
 	unsigned char app_arch = 0;
 
 	snprintf(fw_name, sizeof(fw_name), "%s.mdt", appname);
-	rc = request_firmware(&fw_entry, fw_name,  qseecom.pdev);
+	rc = request_firmware(&fw_entry, fw_name,  qseecom.dev);
 	if (rc) {
 		ret = -EIO;
 		goto err;
@@ -4337,7 +4306,7 @@ static int __qseecom_get_fw_data(const char *appname, u8 *img_data,
 	fw_entry = NULL;
 	for (i = 0; i < num_images; i++) {
 		snprintf(fw_name, ARRAY_SIZE(fw_name), "%s.b%02d", appname, i);
-		ret = request_firmware(&fw_entry, fw_name,  qseecom.pdev);
+		ret = request_firmware(&fw_entry, fw_name,  qseecom.dev);
 		if (ret) {
 			pr_err("Failed to locate blob %s\n", fw_name);
 			goto err;
@@ -5029,7 +4998,6 @@ int qseecom_process_listener_from_smcinvoke(struct scm_desc *desc)
 	resp.data = desc->ret[2];	/*listener_id*/
 
 	dummy_private_data.client.app_id = desc->ret[1];
-	dummy_private_data.client.from_smcinvoke = true;
 	dummy_app_entry.app_id = desc->ret[1];
 
 	mutex_lock(&app_access_lock);
@@ -6178,6 +6146,9 @@ static int qseecom_create_key(struct qseecom_dev_handle *data,
 		flags |= QSEECOM_ICE_FDE_KEY_SIZE_32_BYTE;
 	else
 		flags |= QSEECOM_ICE_FDE_KEY_SIZE_16_BYTE;
+
+	if (qseecom.enable_key_wrap_in_ks == true)
+		flags |= ENABLE_KEY_WRAP_IN_KS;
 
 	generate_key_ireq.flags = flags;
 	generate_key_ireq.qsee_command_id = QSEOS_GENERATE_KEY;
@@ -8931,6 +8902,14 @@ static int qseecom_probe(struct platform_device *pdev)
 		} else {
 			pr_warn("qseecom.qsee_reentrancy_support = %d\n",
 				qseecom.qsee_reentrancy_support);
+		}
+
+		qseecom.enable_key_wrap_in_ks =
+			of_property_read_bool((&pdev->dev)->of_node,
+					"qcom,enable-key-wrap-in-ks");
+		if (qseecom.enable_key_wrap_in_ks) {
+			pr_warn("qseecom.enable_key_wrap_in_ks = %d\n",
+					qseecom.enable_key_wrap_in_ks);
 		}
 
 		/*
