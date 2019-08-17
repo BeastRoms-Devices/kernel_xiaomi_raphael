@@ -1053,6 +1053,7 @@ struct page *new_node_page(struct dnode_of_data *dn, unsigned int ofs)
 	struct node_info new_ni;
 	struct page *page;
 	int err;
+	pgoff_t index;
 
 	if (unlikely(is_inode_flag_set(dn->inode, FI_NO_ALLOC)))
 		return ERR_PTR(-EPERM);
