@@ -290,6 +290,7 @@ struct pno_def_config {
  * @active_dwell: default active dwell time
  * @allow_dfs_chan_in_first_scan: first scan should contain dfs channels or not.
  * @allow_dfs_chan_in_scan: Scan DFS channels or not.
+ * @skip_dfs_chan_in_p2p_search: Skip dfs channels in p2p search.
  * @use_wake_lock_in_user_scan: if wake lock will be acquired during user scan
  * @active_dwell_2g: default active dwell time for 2G channels, if it's not zero
  * @passive_dwell:default passive dwell time
@@ -323,6 +324,7 @@ struct pno_def_config {
  * @scan_priority: default scan priority
  * @adaptive_dwell_time_mode: adaptive dwell mode with connection
  * @adaptive_dwell_time_mode_nc: adaptive dwell mode without connection
+ * @honour_nl_scan_policy_flags: honour nl80211 scan policy flags
  * @scan_f_passive: passively scan all channels including active channels
  * @scan_f_bcast_probe: add wild card ssid prbreq even if ssid_list is specified
  * @scan_f_cck_rates: add cck rates to rates/xrates ie in prb req
@@ -371,6 +373,7 @@ struct scan_default_params {
 	uint32_t active_dwell;
 	bool allow_dfs_chan_in_first_scan;
 	bool allow_dfs_chan_in_scan;
+	bool skip_dfs_chan_in_p2p_search;
 	bool use_wake_lock_in_user_scan;
 	uint32_t active_dwell_2g;
 	uint32_t passive_dwell;
@@ -408,6 +411,7 @@ struct scan_default_params {
 	enum scan_priority scan_priority;
 	enum scan_dwelltime_adaptive_mode adaptive_dwell_time_mode;
 	enum scan_dwelltime_adaptive_mode adaptive_dwell_time_mode_nc;
+	bool honour_nl_scan_policy_flags;
 	union {
 		struct {
 			uint32_t scan_f_passive:1,
@@ -464,10 +468,12 @@ struct scan_default_params {
  * struct scan_cb - nif/sif function callbacks
  * @inform_beacon: cb to indicate frame to OS
  * @update_beacon: cb to indicate frame to MLME
+ * @unlink_bss: cb to unlink bss from kernel cache
  */
 struct scan_cb {
 	update_beacon_cb inform_beacon;
 	update_beacon_cb update_beacon;
+	update_beacon_cb unlink_bss;
 	/* Define nif/sif function callbacks here */
 };
 
@@ -607,17 +613,22 @@ static inline struct pdev_scan_ev_handler*
 wlan_pdev_get_pdev_scan_ev_handlers(struct wlan_objmgr_pdev *pdev)
 {
 	uint8_t pdevid;
-	struct wlan_scan_obj *scan;
-	struct pdev_scan_ev_handler *pdev_ev_handler;
+	struct wlan_scan_obj *scan = NULL;
+
+	if (!pdev)
+		goto err;
 
 	pdevid = wlan_objmgr_pdev_get_pdev_id(pdev);
-
 	scan = wlan_pdev_get_scan_obj(pdev);
+	if (!scan)
+		goto err;
 
-	pdev_ev_handler =
-		&scan->global_evhandlers.pdev_ev_handlers[pdevid];
+	return &scan->global_evhandlers.pdev_ev_handlers[pdevid];
 
-	return pdev_ev_handler;
+err:
+	scm_err("NULL pointer, pdev: 0x%pK, scan_obj: 0x%pK",
+		pdev, scan);
+	return NULL;
 }
 
 /**

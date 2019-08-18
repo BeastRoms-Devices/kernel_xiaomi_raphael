@@ -6193,6 +6193,25 @@ QDF_STATUS wmi_extract_peer_extd_stats(void *wmi_hdl, void *evt_buf,
 }
 
 /**
+ * wmi_extract_peer_adv_stats() - extract advance (extd2) peer stats from event
+ * @wmi_handle: wmi handle
+ * @param evt_buf: pointer to event buffer
+ * @param peer_adv_stats: Pointer to hold extended peer stats
+ *
+ * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
+ */
+QDF_STATUS wmi_extract_peer_adv_stats(wmi_unified_t wmi_handle, void *evt_buf,
+				      struct wmi_host_peer_adv_stats
+				      *peer_adv_stats)
+{
+	if (wmi_handle->ops->extract_peer_adv_stats)
+		return wmi_handle->ops->extract_peer_adv_stats(wmi_handle,
+			evt_buf, peer_adv_stats);
+
+	return QDF_STATUS_E_FAILURE;
+}
+
+/**
  * wmi_extract_rtt_error_report_ev() - extract rtt error report from event
  * @wmi_handle: wmi handle
  * @param evt_buf: pointer to event buffer
@@ -7515,6 +7534,18 @@ wmi_extract_roam_scan_stats_res_evt(wmi_unified_t wmi, void *evt_buf,
 		return wmi->ops->extract_roam_scan_stats_res_evt(wmi,
 							evt_buf,
 							vdev_id, res_param);
+
+	return QDF_STATUS_E_FAILURE;
+}
+
+QDF_STATUS wmi_unified_send_mws_coex_req_cmd(struct wmi_unified *wmi_handle,
+					     uint32_t vdev_id,
+					     uint32_t cmd_id)
+{
+
+	if (wmi_handle->ops->send_mws_coex_status_req_cmd)
+		return wmi_handle->ops->send_mws_coex_status_req_cmd(wmi_handle,
+				vdev_id, cmd_id);
 
 	return QDF_STATUS_E_FAILURE;
 }

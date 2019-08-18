@@ -1778,6 +1778,13 @@ struct reg_table_entry g_registry_table[] = {
 		     CFG_ENABLE_DFS_CHNL_SCAN_MIN,
 		     CFG_ENABLE_DFS_CHNL_SCAN_MAX),
 
+	REG_VARIABLE(CFG_HONOUR_NL_SCAN_POLICY_FLAGS, WLAN_PARAM_Integer,
+		     struct hdd_config, honour_nl_scan_policy_flags,
+		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+		     CFG_HONOUR_NL_SCAN_POLICY_FLAGS_DEFAULT,
+		     CFG_HONOUR_NL_SCAN_POLICY_FLAGS_MIN,
+		     CFG_HONOUR_NL_SCAN_POLICY_FLAGS_MAX),
+
 	REG_VARIABLE(CFG_ENABLE_WAKE_LOCK_IN_SCAN, WLAN_PARAM_Integer,
 		     struct hdd_config, wake_lock_in_user_scan,
 		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
@@ -2886,7 +2893,6 @@ struct reg_table_entry g_registry_table[] = {
 		     CFG_LL_TX_HBW_FLOW_MAX_Q_DEPTH_MIN,
 		     CFG_LL_TX_HBW_FLOW_MAX_Q_DEPTH_MAX),
 #endif /* QCA_LL_LEGACY_TX_FLOW_CONTROL */
-#ifdef QCA_LL_TX_FLOW_CONTROL_V2
 
 	REG_VARIABLE(CFG_LL_TX_FLOW_STOP_QUEUE_TH, WLAN_PARAM_Integer,
 		     struct hdd_config, TxFlowStopQueueThreshold,
@@ -2902,7 +2908,6 @@ struct reg_table_entry g_registry_table[] = {
 		     CFG_LL_TX_FLOW_START_QUEUE_OFFSET_MIN,
 		     CFG_LL_TX_FLOW_START_QUEUE_OFFSET_MAX),
 
-#endif
 	REG_VARIABLE(CFG_INITIAL_DWELL_TIME_NAME, WLAN_PARAM_Integer,
 		     struct hdd_config, nInitialDwellTime,
 		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
@@ -4010,6 +4015,13 @@ struct reg_table_entry g_registry_table[] = {
 		CFG_ROAM_SCAN_TRIGGER_REASON_BITMASK_MIN,
 		CFG_ROAM_SCAN_TRIGGER_REASON_BITMASK_MAX),
 
+	REG_VARIABLE(CFG_ROAM_SCAN_SCAN_POLICY_NAME, WLAN_PARAM_Integer,
+		     struct hdd_config, roaming_scan_policy,
+		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+		     CFG_ROAM_SCAN_SCAN_POLICY_DEFAULT,
+		     CFG_ROAM_SCAN_SCAN_POLICY_MIN,
+		     CFG_ROAM_SCAN_SCAN_POLICY_MAX),
+
 	REG_VARIABLE(CFG_ENABLE_FATAL_EVENT_TRIGGER, WLAN_PARAM_Integer,
 			struct hdd_config, enable_fatal_event,
 			VAR_FLAGS_OPTIONAL |
@@ -4470,6 +4482,13 @@ struct reg_table_entry g_registry_table[] = {
 		     CFG_TX_AGGR_SW_RETRY_VO_MIN,
 		     CFG_TX_AGGR_SW_RETRY_VO_MAX),
 
+	REG_VARIABLE(CFG_TX_AGGR_SW_RETRY, WLAN_PARAM_Integer,
+		     struct hdd_config, tx_aggr_sw_retry_threshold,
+		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+		     CFG_TX_AGGR_SW_RETRY_DEFAULT,
+		     CFG_TX_AGGR_SW_RETRY_MIN,
+		     CFG_TX_AGGR_SW_RETRY_MAX),
+
 	REG_VARIABLE(CFG_TX_NON_AGGR_SW_RETRY_BE, WLAN_PARAM_Integer,
 		     struct hdd_config, tx_non_aggr_sw_retry_threshold_be,
 		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
@@ -4497,6 +4516,13 @@ struct reg_table_entry g_registry_table[] = {
 		     CFG_TX_NON_AGGR_SW_RETRY_VO_DEFAULT,
 		     CFG_TX_NON_AGGR_SW_RETRY_VO_MIN,
 		     CFG_TX_NON_AGGR_SW_RETRY_VO_MAX),
+
+	REG_VARIABLE(CFG_TX_NON_AGGR_SW_RETRY, WLAN_PARAM_Integer,
+		     struct hdd_config, tx_non_aggr_sw_retry_threshold,
+		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+		     CFG_TX_NON_AGGR_SW_RETRY_DEFAULT,
+		     CFG_TX_NON_AGGR_SW_RETRY_MIN,
+		     CFG_TX_NON_AGGR_SW_RETRY_MAX),
 
 	REG_VARIABLE(CFG_SAP_MAX_INACTIVITY_OVERRIDE_NAME, WLAN_PARAM_Integer,
 		struct hdd_config, sap_max_inactivity_override,
@@ -4943,7 +4969,7 @@ struct reg_table_entry g_registry_table[] = {
 		CFG_ENABLE_5G_BAND_PREF_MIN,
 		CFG_ENABLE_5G_BAND_PREF_MAX),
 
-	REG_VARIABLE(CFG_5G_RSSI_BOOST_THRESHOLD_NAME, WLAN_PARAM_Integer,
+	REG_VARIABLE(CFG_5G_RSSI_BOOST_THRESHOLD_NAME, WLAN_PARAM_SignedInteger,
 		struct hdd_config, rssi_boost_threshold_5g,
 		VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
 		CFG_5G_RSSI_BOOST_THRESHOLD_DEFAULT,
@@ -4964,12 +4990,13 @@ struct reg_table_entry g_registry_table[] = {
 		CFG_5G_MAX_RSSI_BOOST_MIN,
 		CFG_5G_MAX_RSSI_BOOST_MAX),
 
-	REG_VARIABLE(CFG_5G_RSSI_PENALIZE_THRESHOLD_NAME, WLAN_PARAM_Integer,
-		struct hdd_config, rssi_penalize_threshold_5g,
-		VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-		CFG_5G_RSSI_PENALIZE_THRESHOLD_DEFAULT,
-		CFG_5G_RSSI_PENALIZE_THRESHOLD_MIN,
-		CFG_5G_RSSI_PENALIZE_THRESHOLD_MAX),
+	REG_VARIABLE(CFG_5G_RSSI_PENALIZE_THRESHOLD_NAME,
+		     WLAN_PARAM_SignedInteger,
+		     struct hdd_config, rssi_penalize_threshold_5g,
+		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+		     CFG_5G_RSSI_PENALIZE_THRESHOLD_DEFAULT,
+		     CFG_5G_RSSI_PENALIZE_THRESHOLD_MIN,
+		     CFG_5G_RSSI_PENALIZE_THRESHOLD_MAX),
 
 	REG_VARIABLE(CFG_5G_RSSI_PENALIZE_FACTOR_NAME, WLAN_PARAM_Integer,
 		struct hdd_config, rssi_penalize_factor_5g,
@@ -5787,6 +5814,16 @@ struct reg_table_entry g_registry_table[] = {
 		     CFG_SET_BT_INTERFERENCE_HIGH_UL_DEFAULT,
 		     CFG_SET_BT_INTERFERENCE_HIGH_UL_MIN,
 		     CFG_SET_BT_INTERFERENCE_HIGH_UL_MAX),
+
+#ifdef FEATURE_MPTA_HELPER
+	REG_VARIABLE(CFG_SET_MPTA_HELPER_ENABLE_NAME, WLAN_PARAM_Integer,
+		     struct hdd_config, set_mpta_helper_enable,
+		     VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+		     CFG_SET_MPTA_HELPER_ENABLE_DEFAULT,
+		     CFG_SET_MPTA_HELPER_ENABLE_MIN,
+		     CFG_SET_MPTA_HELPER_ENABLE_MAX),
+#endif
+
 #ifdef WLAN_FEATURE_ROAM_OFFLOAD
 	REG_VARIABLE(CFG_ROAM_PREAUTH_RETRY_COUNT_NAME,
 		     WLAN_PARAM_Integer,
@@ -7245,6 +7282,8 @@ void hdd_cfg_print(struct hdd_context *hdd_ctx)
 		  hdd_ctx->config->enableBypass11d);
 	hdd_debug("Name = [gEnableDFSChnlScan] Value = [%u] ",
 		  hdd_ctx->config->enableDFSChnlScan);
+	hdd_debug("Name = [honour_nl_scan_policy_flags] Value = [%u] ",
+		  hdd_ctx->config->honour_nl_scan_policy_flags);
 	hdd_debug("Name = [wake_lock_in_user_scan] Value = [%u] ",
 		  hdd_ctx->config->wake_lock_in_user_scan);
 	hdd_debug("Name = [gEnableDFSPnoChnlScan] Value = [%u] ",
@@ -7560,6 +7599,9 @@ void hdd_cfg_print(struct hdd_context *hdd_ctx)
 	hdd_debug("Name = [%s] Value = [%u]",
 		CFG_ROAM_SCAN_TRIGGER_REASON_BITMASK_NAME,
 		hdd_ctx->config->roam_trigger_reason_bitmask);
+	hdd_debug("Name = [%s] Value = [%u]",
+		  CFG_ROAM_SCAN_SCAN_POLICY_NAME,
+		  hdd_ctx->config->roaming_scan_policy);
 	hdd_debug("Name = [%s] Value = [%u]",
 		CFG_MIN_REST_TIME_NAME,
 		hdd_ctx->config->min_rest_time_conc);
@@ -9063,6 +9105,8 @@ QDF_STATUS hdd_set_policy_mgr_user_cfg(struct hdd_context *hdd_ctx)
 		hdd_ctx->config->channel_select_logic_conc;
 	user_cfg->sta_sap_scc_on_lte_coex_chan =
 		hdd_ctx->config->sta_sap_scc_on_lte_coex_chan;
+	user_cfg->enable_dfs_master_cap =
+		hdd_ctx->config->enableDFSMasterCap;
 	status = policy_mgr_set_user_cfg(hdd_ctx->psoc, user_cfg);
 	qdf_mem_free(user_cfg);
 
@@ -9607,6 +9651,8 @@ QDF_STATUS hdd_set_sme_config(struct hdd_context *hdd_ctx)
 		hdd_ctx->config->min_delay_btw_roam_scans;
 	smeConfig->csrConfig.roam_trigger_reason_bitmask =
 		hdd_ctx->config->roam_trigger_reason_bitmask;
+	smeConfig->csrConfig.roaming_scan_policy =
+		hdd_ctx->config->roaming_scan_policy;
 	smeConfig->csrConfig.obss_width_interval =
 			hdd_ctx->config->obss_width_trigger_interval;
 	smeConfig->csrConfig.obss_active_dwelltime =
@@ -9685,6 +9731,8 @@ QDF_STATUS hdd_set_sme_config(struct hdd_context *hdd_ctx)
 			hdd_ctx->config->tx_aggr_sw_retry_threshold_vi;
 	smeConfig->csrConfig.tx_aggr_sw_retry_threshold_vo =
 			hdd_ctx->config->tx_aggr_sw_retry_threshold_vo;
+	smeConfig->csrConfig.tx_aggr_sw_retry_threshold =
+			hdd_ctx->config->tx_aggr_sw_retry_threshold;
 	smeConfig->csrConfig.tx_non_aggr_sw_retry_threshold_be =
 			hdd_ctx->config->tx_non_aggr_sw_retry_threshold_be;
 	smeConfig->csrConfig.tx_non_aggr_sw_retry_threshold_bk =
@@ -9693,6 +9741,8 @@ QDF_STATUS hdd_set_sme_config(struct hdd_context *hdd_ctx)
 			hdd_ctx->config->tx_non_aggr_sw_retry_threshold_vi;
 	smeConfig->csrConfig.tx_non_aggr_sw_retry_threshold_vo =
 			hdd_ctx->config->tx_non_aggr_sw_retry_threshold_vo;
+	smeConfig->csrConfig.tx_non_aggr_sw_retry_threshold =
+			hdd_ctx->config->tx_non_aggr_sw_retry_threshold;
 	smeConfig->csrConfig.enable_bcast_probe_rsp =
 			hdd_ctx->config->enable_bcast_probe_rsp;
 	smeConfig->csrConfig.is_fils_enabled =

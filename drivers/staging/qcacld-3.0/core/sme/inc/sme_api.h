@@ -42,6 +42,7 @@
 #include "sir_types.h"
 #include "scheduler_api.h"
 #include "wlan_serialization_legacy_api.h"
+#include "wmi_unified.h"
 
 /*--------------------------------------------------------------------------
   Preprocessor definitions and constants
@@ -370,7 +371,7 @@ QDF_STATUS sme_get_soft_ap_domain(tHalHandle hHal,
 QDF_STATUS sme_hdd_ready_ind(tHalHandle hHal);
 /**
  * sme_ser_cmd_callback() - callback from serialization module
- * @buf: serialization command buffer
+ * @cmd: serialization command
  * @reason: reason why serialization module has given this callback
  *
  * Serialization module will give callback to SME for why it triggered
@@ -378,7 +379,7 @@ QDF_STATUS sme_hdd_ready_ind(tHalHandle hHal);
  *
  * Return: QDF_STATUS_SUCCESS
  */
-QDF_STATUS sme_ser_cmd_callback(void *buf,
+QDF_STATUS sme_ser_cmd_callback(struct wlan_serialization_command *cmd,
 				enum wlan_serialization_cb_reason reason);
 
 /**
@@ -1984,6 +1985,20 @@ QDF_STATUS sme_get_chain_rssi(tHalHandle hal,
 			      void *context);
 
 /**
+ * sme_get_isolation() - sme api to get antenna isolation
+ * @mac_handle: hal handle for getting global mac struct
+ * @context: context of callback function
+ * @callbackfn: hdd callback function when receive response
+ *
+ * This function will send WMA_GET_ISOLATION to WMA
+ *
+ * Return: QDF_STATUS_SUCCESS or non-zero on failure
+ */
+QDF_STATUS sme_get_isolation(mac_handle_t mac_handle,
+			     void *context,
+			     sme_get_isolation_cb callbackfn);
+
+/**
  * sme_get_valid_channels() - sme api to get valid channels for
  * current regulatory domain
  * @chan_list: list of the valid channels
@@ -2573,4 +2588,23 @@ sme_get_roam_scan_stats(tHalHandle hal, roam_scan_stats_cb cb, void *context,
 QDF_STATUS sme_update_hidden_ssid_status_cb(mac_handle_t mac_handle,
 					    hidden_ssid_cb cb);
 
+#ifdef WLAN_MWS_INFO_DEBUGFS
+/**
+ * sme_get_mws_coex_info() - SME API to get the coex information
+ * @mac_handle: mac handler
+ * @vdev_id: Vdev_id
+ * @cmd_id: enum mws_coex_cmdid which information is needed.
+ * @callback_fn: Callback function
+ * @context: callback context
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS
+sme_get_mws_coex_info(mac_handle_t mac_handle, uint32_t vdev_id,
+		      uint32_t cmd_id, void (*callback_fn)(void *coex_info_data,
+							   void *context,
+							   wmi_mws_coex_cmd_id
+							   cmd_id),
+		      void *context);
+#endif
 #endif /* #if !defined( __SME_API_H ) */

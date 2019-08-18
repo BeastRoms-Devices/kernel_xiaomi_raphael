@@ -1356,6 +1356,10 @@ QDF_STATUS (*extract_bcnflt_stats)(wmi_unified_t wmi_handle, void *evt_buf,
 QDF_STATUS (*extract_peer_extd_stats)(wmi_unified_t wmi_handle, void *evt_buf,
 		 uint32_t index, wmi_host_peer_extd_stats *peer_extd_stats);
 
+QDF_STATUS (*extract_peer_adv_stats)(wmi_unified_t wmi_handle, void *evt_buf,
+				     struct wmi_host_peer_adv_stats
+				     *peer_adv_stats);
+
 QDF_STATUS (*extract_chan_stats)(wmi_unified_t wmi_handle, void *evt_buf,
 			 uint32_t index, wmi_host_chan_stats *chan_stats);
 
@@ -1732,6 +1736,8 @@ QDF_STATUS (*extract_dfs_status_from_fw)(wmi_unified_t wmi_handle,
 					 void *evt_buf,
 					 uint32_t *dfs_status_check);
 #endif
+QDF_STATUS (*send_mws_coex_status_req_cmd)(wmi_unified_t wmi_handle,
+					   uint32_t vdev_id, uint32_t cmd_id);
 };
 
 /* Forward declartion for psoc*/

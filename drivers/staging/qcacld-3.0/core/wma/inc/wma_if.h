@@ -1182,10 +1182,12 @@ typedef struct sMaxTxPowerPerBandParams {
  * @tx_aggr_sw_retry_threshold_bk: aggr sw retry threshold for bk
  * @tx_aggr_sw_retry_threshold_vi: aggr sw retry threshold for vi
  * @tx_aggr_sw_retry_threshold_vo: aggr sw retry threshold for vo
+ * @tx_aggr_sw_retry_threshold: aggr sw retry threshold
  * @tx_non_aggr_sw_retry_threshold_be: non aggr sw retry threshold for be
  * @tx_non_aggr_sw_retry_threshold_bk: non aggr sw retry threshold for bk
  * @tx_non_aggr_sw_retry_threshold_vi: non aggr sw retry threshold for vi
  * @tx_non_aggr_sw_retry_threshold_vo: non aggr sw retry threshold for vo
+ * @tx_non_aggr_sw_retry_threshold: non aggr sw retry threshold
  */
 struct add_sta_self_params {
 	tSirMacAddr self_mac_addr;
@@ -1210,10 +1212,12 @@ struct add_sta_self_params {
 	uint32_t tx_aggr_sw_retry_threshold_bk;
 	uint32_t tx_aggr_sw_retry_threshold_vi;
 	uint32_t tx_aggr_sw_retry_threshold_vo;
+	uint32_t tx_aggr_sw_retry_threshold;
 	uint32_t tx_non_aggr_sw_retry_threshold_be;
 	uint32_t tx_non_aggr_sw_retry_threshold_bk;
 	uint32_t tx_non_aggr_sw_retry_threshold_vi;
 	uint32_t tx_non_aggr_sw_retry_threshold_vo;
+	uint32_t tx_non_aggr_sw_retry_threshold;
 };
 
 /**
@@ -1411,6 +1415,18 @@ typedef struct sTdlsLinkEstablishParams {
 	uint8_t validOperClasses[HAL_MAX_SUPP_OPER_CLASSES];
 	uint32_t status;
 } tTdlsLinkEstablishParams, *tpTdlsLinkEstablishParams;
+
+/**
+ * struct send_peer_unmap_conf_params - Send Peer Unmap Conf param
+ * @vdev_id: vdev ID
+ * @peer_id_cnt: peer_id count
+ * @peer_id_list: list of peer IDs
+ */
+struct send_peer_unmap_conf_params {
+	uint8_t vdev_id;
+	uint32_t peer_id_cnt;
+	uint16_t *peer_id_list;
+};
 
 /**
  * struct tHalHiddenSsidVdevRestart - hidden ssid vdev restart params

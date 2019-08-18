@@ -379,8 +379,15 @@ void wlan_hdd_rso_cmd_status_cb(hdd_handle_t hdd_handle,
 void hdd_rssi_threshold_breached(void *hddctx,
 				 struct rssi_breach_event *data);
 
-struct cfg80211_bss *
-wlan_hdd_cfg80211_update_bss_list(struct hdd_adapter *adapter,
+/*
+ * wlan_hdd_cfg80211_unlink_bss :to inform nl80211
+ * interface that BSS might have been lost.
+ * @adapter: adapter
+ * @bssid: bssid which might have been lost
+ *
+ * Return: void
+ */
+void wlan_hdd_cfg80211_unlink_bss(struct hdd_adapter *adapter,
 				  tSirMacAddr bssid);
 
 void wlan_hdd_cfg80211_acs_ch_select_evt(struct hdd_adapter *adapter);
@@ -618,4 +625,29 @@ int wlan_hdd_send_mode_change_event(void);
 int wlan_hdd_restore_channels(struct hdd_context *hdd_ctx,
 			      bool notify_sap_event);
 
+/**
+ * hdd_store_sar_config() - Store SAR config in HDD context
+ * @hdd_ctx: The HDD context
+ * @sar_limit_cmd: The sar_limit_cmd_params struct to save
+ *
+ * After SSR, the SAR configuration is lost. As SSR is hidden from
+ * userland, this command will not come from userspace after a SSR. To
+ * restore this configuration, save this in hdd context and restore
+ * after re-init.
+ *
+ * Return: None
+ */
+void hdd_store_sar_config(struct hdd_context *hdd_ctx,
+			  struct sar_limit_cmd_params *sar_limit_cmd);
+
+/**
+ * hdd_free_sar_config() - Free the resources allocated while storing SAR config
+ * @hdd_ctx: HDD context
+ *
+ * The driver stores the SAR config values in HDD context so that it can be
+ * restored in the case SSR is invoked. Free those resources.
+ *
+ * Return: None
+ */
+void wlan_hdd_free_sar_config(struct hdd_context *hdd_ctx);
 #endif

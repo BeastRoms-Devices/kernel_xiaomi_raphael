@@ -77,6 +77,8 @@ union wlan_serialization_rules_info {
 	struct wlan_serialization_scan_info scan_info;
 };
 
+struct wlan_serialization_command;
+
 /**
  * wlan_serialization_cmd_callback() - Callback registered by the component
  * @wlan_cmd: Command passed by the component for serialization
@@ -89,8 +91,9 @@ union wlan_serialization_rules_info {
  *
  * Return: QDF_STATUS_SUCCESS or QDF_STATUS_E_FAILURE
  */
-typedef QDF_STATUS (*wlan_serialization_cmd_callback) (void *wlan_cmd,
-				 enum wlan_serialization_cb_reason reason);
+typedef QDF_STATUS
+(*wlan_serialization_cmd_callback)(struct wlan_serialization_command *wlan_cmd,
+				   enum wlan_serialization_cb_reason reason);
 
 /**
  * wlan_serialization_comp_info_cb() - callback to fill the rules information
@@ -456,6 +459,22 @@ bool wlan_serialization_is_cmd_present_in_pending_queue(
 bool wlan_serialization_is_cmd_present_in_active_queue(
 		struct wlan_objmgr_psoc *psoc,
 		struct wlan_serialization_command *cmd);
+
+/**
+ * wlan_serialization_purge_all_pdev_cmd() - purge all command for given pdev
+ * @pdev: objmgr pdev pointer
+ *
+ * Return: void
+ */
+void wlan_serialization_purge_all_pdev_cmd(struct wlan_objmgr_pdev *pdev);
+
+/**
+ * wlan_serialization_purge_all_cmd() - purge all command for psoc
+ * @psoc: objmgr psoc pointer
+ *
+ * Return: void
+ */
+void wlan_serialization_purge_all_cmd(struct wlan_objmgr_psoc *psoc);
 
 /**
  * wlan_serialization_get_scan_cmd_using_scan_id() - Return command which

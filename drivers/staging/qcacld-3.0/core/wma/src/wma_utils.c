@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2018 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2019 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -61,6 +61,7 @@
 #include "cds_reg_service.h"
 #include "target_if.h"
 #include "wlan_mlme_main.h"
+#include "host_diag_core_log.h"
 
 /* MCS Based rate table */
 /* HT MCS parameters with Nss = 1 */
@@ -3151,13 +3152,6 @@ int wma_stats_event_handler(void *handle, uint8_t *cmd_param_info,
 	}
 	event = param_buf->fixed_param;
 	temp = (uint8_t *) param_buf->data;
-	if ((event->num_pdev_stats + event->num_vdev_stats +
-	     event->num_peer_stats) > param_buf->num_data) {
-		WMA_LOGE("%s: Invalid num_pdev_stats:%d or num_vdev_stats:%d or num_peer_stats:%d",
-			__func__, event->num_pdev_stats, event->num_vdev_stats,
-			event->num_peer_stats);
-		return -EINVAL;
-	}
 
 	do {
 		if (event->num_pdev_stats > ((WMI_SVC_MSG_MAX_SIZE -
@@ -3184,6 +3178,14 @@ int wma_stats_event_handler(void *handle, uint8_t *cmd_param_info,
 			buf_len += event->num_peer_stats * sizeof(*peer_stats);
 		}
 
+		if (buf_len > param_buf->num_data) {
+			WMA_LOGE("%s: num_data: %d Invalid num_pdev_stats:%d or num_vdev_stats:%d or num_peer_stats:%d",
+				__func__, param_buf->num_data,
+				event->num_pdev_stats,
+				event->num_vdev_stats, event->num_peer_stats);
+			return -EINVAL;
+		}
+
 		rssi_event =
 			(wmi_per_chain_rssi_stats *) param_buf->chain_stats;
 		if (rssi_event) {
@@ -3204,7 +3206,6 @@ int wma_stats_event_handler(void *handle, uint8_t *cmd_param_info,
 		WMA_LOGE("excess wmi buffer: stats pdev %d vdev %d peer %d",
 			 event->num_pdev_stats, event->num_vdev_stats,
 			 event->num_peer_stats);
-		QDF_ASSERT(0);
 		return -EINVAL;
 	}
 
@@ -4630,7 +4631,105 @@ int wma_rcpi_event_handler(void *handle, uint8_t *cmd_param_info,
 	return 0;
 }
 
+/**
+ * wma_set_roam_offload_flag() -  Set roam offload flag to fw
+ * @wma:     wma handle
+ * @vdev_id: vdev id
+ * @is_set:  set or clear
+ *
+ * Return: none
+ */
+static void wma_set_roam_offload_flag(tp_wma_handle wma, uint8_t vdev_id,
+				      bool is_set)
+{
+	QDF_STATUS status;
+	uint32_t flag = 0;
 
+	if (is_set)
+		flag = WMI_ROAM_FW_OFFLOAD_ENABLE_FLAG |
+		       WMI_ROAM_BMISS_FINAL_SCAN_ENABLE_FLAG;
+
+	WMA_LOGD("%s: vdev_id:%d, is_set:%d, flag:%d, roam_offload_enabled:%d",
+		 __func__, vdev_id, is_set, flag,
+		  wma->interfaces[vdev_id].roam_offload_enabled);
+
+	status = wma_vdev_set_param(wma->wmi_handle, vdev_id,
+				    WMI_VDEV_PARAM_ROAM_FW_OFFLOAD, flag);
+	if (QDF_IS_STATUS_ERROR(status))
+		WMA_LOGE("Failed to set WMI_VDEV_PARAM_ROAM_FW_OFFLOAD");
+	else
+		wma->interfaces[vdev_id].roam_offload_enabled = is_set;
+}
+
+/**
+ * wma_update_roam_offload_flag() -  update roam offload flag to fw
+ * @wma:     wma handle
+ * @vdev_id: vdev id
+ * @is_connected: connected or disconnected
+ *
+ * Return: none
+ */
+static void wma_update_roam_offload_flag(tp_wma_handle wma, uint8_t vdev_id,
+					 bool is_connected)
+{
+	struct wma_txrx_node *iface;
+	uint8_t id;
+	uint8_t roam_offload_vdev_id = WMA_INVALID_VDEV_ID;
+	uint32_t list[MAX_NUMBER_OF_CONC_CONNECTIONS];
+	uint8_t count;
+
+	WMA_LOGD("%s: vdev_id:%d, is_connected:%d", __func__,
+		 vdev_id, is_connected);
+
+	iface = &wma->interfaces[vdev_id];
+
+	if ((iface->type != WMI_VDEV_TYPE_STA) ||
+	    (iface->sub_type != 0)) {
+		WMA_LOGE("%s: this isn't a STA: %d",
+			 __func__, vdev_id);
+		return;
+	}
+
+	if (iface->roaming_in_progress || iface->roam_synch_in_progress) {
+		WMA_LOGE("%s: roaming in progress: %d",
+			 __func__, vdev_id);
+		return;
+	}
+
+	for (id = 0; id < wma->max_bssid; id++) {
+		if (wma->interfaces[id].roam_offload_enabled)
+			roam_offload_vdev_id = id;
+	}
+
+	/*
+	 * If sta connected, and no connected sta interface exist, then set
+	 * set roam offload flag to this sta interface
+	 */
+	if (is_connected && (roam_offload_vdev_id == WMA_INVALID_VDEV_ID))
+		wma_set_roam_offload_flag(wma, vdev_id, true);
+
+	if (!is_connected && roam_offload_vdev_id == vdev_id) {
+		/* If sta disconnected and roam offload enaled on this
+		 * interface, then clear roam offload flag
+		 */
+		wma_set_roam_offload_flag(wma, vdev_id, false);
+
+		count = policy_mgr_mode_specific_connection_count(
+				wma->psoc, PM_STA_MODE, list);
+		WMA_LOGD("%s: valid sta count:%d", __func__, count);
+		/*
+		 * If there is multi sta connection before this disconnection,
+		 * then set roam offload flag to other connected sta inferface.
+		 */
+		if (count > 1) {
+			for (id = 0; id < count; id++) {
+				if (list[id] != vdev_id)
+					wma_set_roam_offload_flag(wma, list[id],
+								  true);
+			}
+		}
+	}
+}
 
 QDF_STATUS wma_send_vdev_up_to_fw(t_wma_handle *wma,
 				  struct vdev_up_params *params,
@@ -4644,6 +4743,8 @@ QDF_STATUS wma_send_vdev_up_to_fw(t_wma_handle *wma,
 			 params->vdev_id, bssid);
 		return QDF_STATUS_SUCCESS;
 	}
+
+	wma_update_roam_offload_flag(wma, params->vdev_id, true);
 	status = wmi_unified_vdev_up_send(wma->wmi_handle, bssid, params);
 	wma_release_wakelock(&vdev->vdev_start_wakelock);
 
@@ -4655,6 +4756,7 @@ QDF_STATUS wma_send_vdev_down_to_fw(t_wma_handle *wma, uint8_t vdev_id)
 	QDF_STATUS status;
 	struct wma_txrx_node *vdev = &wma->interfaces[vdev_id];
 
+	wma_update_roam_offload_flag(wma, vdev_id, false);
 	wma->interfaces[vdev_id].roaming_in_progress = false;
 	status = wmi_unified_vdev_down_send(wma->wmi_handle, vdev_id);
 	wma_release_wakelock(&vdev->vdev_start_wakelock);
@@ -4907,4 +5009,71 @@ void wma_remove_peer_on_add_bss_failure(tpAddBssParams add_bss_params)
 	}
 	wma_remove_peer(wma, add_bss_params->bssId, add_bss_params->bssIdx,
 			peer, false);
+}
+
+#ifdef FEATURE_WLAN_DIAG_SUPPORT
+static QDF_STATUS wma_send_cold_boot_cal_data(uint8_t *data,
+		wmi_cold_boot_cal_data_fixed_param *event)
+{
+	struct host_log_cold_boot_cal_data_type *log_ptr = NULL;
+
+	WLAN_HOST_DIAG_LOG_ALLOC(log_ptr,
+				 struct host_log_cold_boot_cal_data_type,
+				 LOG_WLAN_COLD_BOOT_CAL_DATA_C);
+
+	if (!log_ptr)
+		return QDF_STATUS_E_NOMEM;
+
+	log_ptr->version = VERSION_LOG_WLAN_COLD_BOOT_CAL_DATA_C;
+	log_ptr->cb_cal_data_len = event->data_len;
+	log_ptr->flags = event->flags;
+	qdf_mem_copy(log_ptr->cb_cal_data, data, log_ptr->cb_cal_data_len);
+
+	WLAN_HOST_DIAG_LOG_REPORT(log_ptr);
+
+	return QDF_STATUS_SUCCESS;
+}
+#else
+static QDF_STATUS wma_send_cold_boot_cal_data(uint8_t *data,
+		wmi_cold_boot_cal_data_fixed_param *event)
+{
+	return QDF_STATUS_SUCCESS;
+}
+#endif
+
+int wma_cold_boot_cal_event_handler(void *wma_ctx, uint8_t *event_buff,
+				    uint32_t len)
+{
+	WMI_PDEV_COLD_BOOT_CAL_DATA_EVENTID_param_tlvs *param_buf;
+	wmi_cold_boot_cal_data_fixed_param *event;
+	QDF_STATUS status;
+	tp_wma_handle wma_handle = (tp_wma_handle)wma_ctx;
+
+	if (!wma_handle) {
+		WMA_LOGE("NULL wma handle");
+		return -EINVAL;
+	}
+
+	param_buf =
+		   (WMI_PDEV_COLD_BOOT_CAL_DATA_EVENTID_param_tlvs *)event_buff;
+	if (!param_buf) {
+		WMA_LOGE("Invalid Cold Boot Cal Event");
+		return -EINVAL;
+	}
+
+	event = param_buf->fixed_param;
+	if ((event->data_len > param_buf->num_data) ||
+	    (param_buf->num_data > HOST_LOG_MAX_COLD_BOOT_CAL_DATA_SIZE)) {
+		WMA_LOGE("Excess data_len:%d, num_data:%d", event->data_len,
+			 param_buf->num_data);
+		return -EINVAL;
+	}
+
+	status = wma_send_cold_boot_cal_data((uint8_t *)param_buf->data, event);
+	if (status != QDF_STATUS_SUCCESS) {
+		WMA_LOGE("Cold Boot Cal Diag log not sent");
+		return -ENOMEM;
+	}
+
+	return 0;
 }

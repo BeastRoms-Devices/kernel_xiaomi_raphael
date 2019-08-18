@@ -339,7 +339,7 @@ bool pmo_core_is_wow_applicable(struct wlan_objmgr_psoc *psoc)
 		if (QDF_IS_STATUS_ERROR(status))
 			continue;
 
-		if (pmo_core_is_vdev_connected(vdev)) {
+		if (wlan_vdev_is_up(vdev)) {
 			pmo_debug("STA is connected, enabling wow");
 			is_wow_applicable = true;
 		} else if (ucfg_scan_get_pno_in_progress(vdev)) {
@@ -424,7 +424,9 @@ void pmo_set_sta_wow_bitmask(uint32_t *bitmask, uint32_t wow_bitmap_size)
 
 void pmo_set_sap_wow_bitmask(uint32_t *bitmask, uint32_t wow_bitmap_size)
 {
-
+	pmo_set_wow_event_bitmap(WOW_CLIENT_KICKOUT_EVENT,
+				 wow_bitmap_size,
+				 bitmask);
 	pmo_set_wow_event_bitmap(WOW_PROBE_REQ_WPS_IE_EVENT,
 				 wow_bitmap_size,
 				 bitmask);

@@ -270,6 +270,7 @@ struct security_info {
  * @bssid: bssid
  * @mac_addr: mac address
  * @ssid: ssid
+ * @is_hidden_ssid: is AP having hidden ssid.
  * @seq_num: sequence number
  * @phy_mode: Phy mode of the AP
  * @avg_rssi: Average RSSI fof the AP
@@ -306,6 +307,7 @@ struct scan_cache_entry {
 	struct qdf_mac_addr bssid;
 	struct qdf_mac_addr mac_addr;
 	struct wlan_ssid ssid;
+	bool is_hidden_ssid;
 	uint16_t seq_num;
 	enum wlan_phymode phy_mode;
 	int32_t avg_rssi;
@@ -1118,12 +1120,14 @@ typedef void (*scan_event_handler) (struct wlan_objmgr_vdev *vdev,
  * enum scan_cb_type - update beacon cb type
  * @SCAN_CB_TYPE_INFORM_BCN: Calback to indicate beacon to OS
  * @SCAN_CB_TYPE_UPDATE_BCN: Calback to indicate beacon
+ * @SCAN_CB_TYPE_UNLINK_BSS: cb to unlink bss entry
  *                    to MLME and update MLME info
  *
  */
 enum scan_cb_type {
 	SCAN_CB_TYPE_INFORM_BCN,
 	SCAN_CB_TYPE_UPDATE_BCN,
+	SCAN_CB_TYPE_UNLINK_BSS,
 };
 
 /* Set PNO */
@@ -1298,6 +1302,7 @@ struct pno_user_cfg {
  * struct scan_user_cfg - user configuration required for for scan
  * @allow_dfs_chan_in_first_scan: first scan should contain dfs channels or not.
  * @allow_dfs_chan_in_scan: Scan DFS channels or not.
+ * @skip_dfs_chan_in_p2p_search: Skip DFS channels in P2P search.
  * @use_wake_lock_in_user_scan: if wake lock will be acquired during user scan
  * @active_dwell: default active dwell time
  * @active_dwell_2g: default active dwell time for 2G channels
@@ -1320,6 +1325,7 @@ struct pno_user_cfg {
  * @rssi_cat_gap: set rssi category gap
  * @scan_dwell_time_mode: Adaptive dweltime mode
  * @scan_dwell_time_mode_nc: Adaptive dweltime mode without connection
+ * @honour_nl_scan_policy_flags: honour nl80211 scan policy flags
  * @pno_cfg: Pno related config params
  * @ie_whitelist: probe req IE whitelist attrs
  * @is_bssid_hint_priority: True if bssid_hint is priority
@@ -1330,6 +1336,7 @@ struct pno_user_cfg {
 struct scan_user_cfg {
 	bool allow_dfs_chan_in_first_scan;
 	bool allow_dfs_chan_in_scan;
+	bool skip_dfs_chan_in_p2p_search;
 	bool use_wake_lock_in_user_scan;
 	uint32_t active_dwell;
 	uint32_t active_dwell_2g;
@@ -1347,6 +1354,7 @@ struct scan_user_cfg {
 	uint32_t rssi_cat_gap;
 	enum scan_dwelltime_adaptive_mode scan_dwell_time_mode;
 	enum scan_dwelltime_adaptive_mode scan_dwell_time_mode_nc;
+	bool honour_nl_scan_policy_flags;
 	struct pno_user_cfg pno_cfg;
 	struct probe_req_whitelist_attr ie_whitelist;
 	uint32_t usr_cfg_probe_rpt_time;

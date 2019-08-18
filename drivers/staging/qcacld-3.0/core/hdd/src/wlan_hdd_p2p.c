@@ -47,6 +47,7 @@
 #include "wlan_p2p_public_struct.h"
 #include "wlan_p2p_ucfg_api.h"
 #include "wlan_cfg80211_p2p.h"
+#include "wlan_hdd_object_manager.h"
 
 /* Ms to Time Unit Micro Sec */
 #define MS_TO_TU_MUS(x)   ((x) * 1024)
@@ -628,6 +629,7 @@ struct wireless_dev *__wlan_hdd_add_virtual_intf(struct wiphy *wiphy,
 {
 	struct hdd_context *hdd_ctx = (struct hdd_context *) wiphy_priv(wiphy);
 	struct hdd_adapter *adapter = NULL;
+	struct wlan_objmgr_vdev *vdev;
 	int ret;
 	uint8_t session_type;
 
@@ -662,13 +664,17 @@ struct wireless_dev *__wlan_hdd_add_virtual_intf(struct wiphy *wiphy,
 
 	adapter = hdd_get_adapter(hdd_ctx, QDF_STA_MODE);
 	if (adapter && !wlan_hdd_validate_session_id(adapter->session_id)) {
-		if (ucfg_scan_get_vdev_status(adapter->vdev) !=
-				SCAN_NOT_IN_PROGRESS) {
+		vdev = hdd_objmgr_get_vdev(adapter);
+		if (vdev &&
+		    ucfg_scan_get_vdev_status(vdev) != SCAN_NOT_IN_PROGRESS) {
 			wlan_abort_scan(hdd_ctx->pdev, INVAL_PDEV_ID,
 					adapter->session_id, INVALID_SCAN_ID,
 					false);
 			hdd_debug("Abort Scan while adding virtual interface");
 		}
+
+		if (vdev)
+			hdd_objmgr_put_vdev(vdev);
 	}
 
 	if (session_type == QDF_SAP_MODE) {
@@ -720,23 +726,10 @@ struct wireless_dev *__wlan_hdd_add_virtual_intf(struct wiphy *wiphy,
 	 * check the statemachine for modules state and if they are closed
 	 * open the modules.
 	 */
-	ret = hdd_wlan_start_modules(hdd_ctx, false);
+	ret = hdd_psoc_idle_restart(hdd_ctx);
 	if (ret) {
 		hdd_err("Failed to start the wlan_modules");
 		goto close_adapter;
-	}
-
-	/*
-	 * Once the support for session creation/deletion from
-	 * hdd_hostapd_open/hdd_host_stop is in place.
-	 * The support for starting adapter from here can be removed.
-	 */
-	if (NL80211_IFTYPE_AP == type || (NL80211_IFTYPE_P2P_GO == type)) {
-		ret = hdd_start_adapter(adapter);
-		if (ret) {
-			hdd_err("Failed to start %s", name);
-			goto stop_modules;
-		}
 	}
 
 	if (hdd_ctx->rps)
@@ -744,21 +737,6 @@ struct wireless_dev *__wlan_hdd_add_virtual_intf(struct wiphy *wiphy,
 
 	hdd_exit();
 	return adapter->dev->ieee80211_ptr;
-
-stop_modules:
-	/*
-	 * Find if any iface is up. If there is not iface which is up
-	 * start the timer to close the modules
-	 */
-	if (hdd_check_for_opened_interfaces(hdd_ctx)) {
-		hdd_debug("Closing all modules from the add_virt_iface");
-		qdf_sched_delayed_work(&hdd_ctx->iface_idle_work,
-				       hdd_ctx->config->iface_change_wait_time);
-		hdd_prevent_suspend_timeout(
-			hdd_ctx->config->iface_change_wait_time,
-			WIFI_POWER_EVENT_WAKELOCK_IFACE_CHANGE_TIMER);
-	} else
-		hdd_debug("Other interfaces are still up dont close modules!");
 
 close_adapter:
 	hdd_close_adapter(hdd_ctx, adapter, true);
@@ -872,7 +850,7 @@ int __wlan_hdd_del_virtual_intf(struct wiphy *wiphy, struct wireless_dev *wdev)
 		return errno;
 
 	/* check state machine state and kickstart modules if they are closed */
-	errno = hdd_wlan_start_modules(hdd_ctx, false);
+	errno = hdd_psoc_idle_restart(hdd_ctx);
 	if (errno)
 		return errno;
 

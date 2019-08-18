@@ -145,6 +145,7 @@
 #define WMA_SEND_BCN_RSP               SIR_HAL_SEND_BCN_RSP
 #define WMA_SEND_PROBE_RSP_TMPL        SIR_HAL_SEND_PROBE_RSP_TMPL
 #define WMA_ROAM_BLACLIST_MSG          SIR_HAL_ROAM_BLACKLIST_MSG
+#define WMA_SEND_PEER_UNMAP_CONF       SIR_HAL_SEND_PEER_UNMAP_CONF
 
 #define WMA_SET_BSSKEY_REQ             SIR_HAL_SET_BSSKEY_REQ
 #define WMA_SET_BSSKEY_RSP             SIR_HAL_SET_BSSKEY_RSP
@@ -357,6 +358,8 @@
 #define WMA_GET_PEER_INFO          SIR_HAL_GET_PEER_INFO
 #define WMA_GET_PEER_INFO_EXT      SIR_HAL_GET_PEER_INFO_EXT
 
+#define WMA_GET_ISOLATION          SIR_HAL_GET_ISOLATION
+
 #define WMA_MODEM_POWER_STATE_IND SIR_HAL_MODEM_POWER_STATE_IND
 
 #ifdef WLAN_FEATURE_STATS_EXT
@@ -459,6 +462,10 @@
 #define WMA_OBSS_COLOR_COLLISION_INFO        SIR_HAL_OBSS_COLOR_COLLISION_INFO
 
 #define WMA_GET_ROAM_SCAN_STATS              SIR_HAL_GET_ROAM_SCAN_STATS
+
+#ifdef WLAN_MWS_INFO_DEBUGFS
+#define WMA_GET_MWS_COEX_INFO_REQ            SIR_HAL_GET_MWS_COEX_INFO_REQ
+#endif
 
 /* Bit 6 will be used to control BD rate for Management frames */
 #define HAL_USE_BD_RATE2_FOR_MANAGEMENT_FRAME 0x40
@@ -614,7 +621,7 @@ typedef QDF_STATUS (*wma_tx_ota_comp_callback)(void *context, qdf_nbuf_t buf,
 typedef void (*wma_txFailIndCallback)(uint8_t *, uint8_t);
 
 /* generic callback for updating parameters from target to HDD */
-typedef void (*wma_tgt_cfg_cb)(hdd_handle_t handle, struct wma_tgt_cfg *cfg);
+typedef int (*wma_tgt_cfg_cb)(hdd_handle_t handle, struct wma_tgt_cfg *cfg);
 
 /**
  * struct wma_cli_set_cmd_t - set command parameters

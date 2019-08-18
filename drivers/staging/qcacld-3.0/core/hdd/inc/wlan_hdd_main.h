@@ -126,7 +126,7 @@ struct hdd_apf_context {
 #endif /* FEATURE_WLAN_APF */
 
 /** Number of Tx Queues */
-#ifdef QCA_LL_TX_FLOW_CONTROL_V2
+#if defined(QCA_LL_TX_FLOW_CONTROL_V2) || defined(QCA_LL_PDEV_TX_FLOW_CONTROL)
 #define NUM_TX_QUEUES 5
 #else
 #define NUM_TX_QUEUES 4
@@ -248,6 +248,8 @@ enum hdd_driver_flags {
 #define WLAN_WAIT_TIME_APF     1000
 
 #define WLAN_WAIT_TIME_FW_ROAM_STATS 1000
+
+#define WLAN_WAIT_TIME_ANTENNA_ISOLATION 8000
 
 /* Maximum time(ms) to wait for RSO CMD status event */
 #define WAIT_TIME_RSO_CMD_STATUS 2000
@@ -548,6 +550,7 @@ struct hdd_tx_rx_stats {
 	__u32 rx_dropped[NUM_CPUS];
 	__u32 rx_delivered[NUM_CPUS];
 	__u32 rx_refused[NUM_CPUS];
+	qdf_atomic_t rx_usolict_arp_n_mcast_drp;
 
 	/* txflow stats */
 	bool     is_txflow_paused;
@@ -681,6 +684,18 @@ struct hdd_icmpv4_stats_s {
 	uint16_t tx_ack_cnt;
 };
 
+/**
+ * struct hdd_peer_stats - Peer stats at HDD level
+ * @rx_count: RX count
+ * @rx_bytes: RX bytes
+ * @fcs_count: FCS err count
+ */
+struct hdd_peer_stats {
+	uint32_t rx_count;
+	uint64_t rx_bytes;
+	uint32_t fcs_count;
+};
+
 struct hdd_stats {
 	tCsrSummaryStatsInfo summary_stat;
 	tCsrGlobalClassAStatsInfo class_a_stat;
@@ -691,6 +706,7 @@ struct hdd_stats {
 	struct hdd_dns_stats_s hdd_dns_stats;
 	struct hdd_tcp_stats_s hdd_tcp_stats;
 	struct hdd_icmpv4_stats_s hdd_icmpv4_stats;
+	struct hdd_peer_stats peer_stats;
 #ifdef WLAN_FEATURE_11W
 	struct hdd_pmf_stats hdd_pmf_stats;
 #endif
@@ -1014,6 +1030,8 @@ enum dhcp_nego_status {
  * @reason_code: Disconnection reason code for current station
  * @rssi: RSSI of the current station reported from F/W
  * @capability: Capability information of current station
+ * @support_mode: Max supported mode of a station currently
+ * connected to sap
  */
 struct hdd_station_info {
 	bool in_use;
@@ -1058,6 +1076,7 @@ struct hdd_station_info {
 	enum dhcp_phase dhcp_phase;
 	enum dhcp_nego_status dhcp_nego_status;
 	uint16_t capability;
+	uint8_t support_mode;
 };
 
 /**
@@ -1224,6 +1243,7 @@ struct hdd_context;
 /**
  * struct hdd_adapter - hdd vdev/net_device context
  * @vdev: object manager vdev context
+ * @vdev_lock: lock to protect vdev context access
  * @event_flags: a bitmap of hdd_adapter_flags
  */
 struct hdd_adapter {
@@ -1239,6 +1259,7 @@ struct hdd_adapter {
 
 	struct hdd_context *hdd_ctx;
 	struct wlan_objmgr_vdev *vdev;
+	qdf_spinlock_t vdev_lock;
 
 	void *txrx_vdev;
 
@@ -1353,6 +1374,8 @@ struct hdd_adapter {
 	uint64_t cur_target_time;
 	uint64_t cur_tsf_sync_soc_time;
 	uint64_t last_tsf_sync_soc_time;
+	uint64_t cur_target_global_tsf_time;
+	uint64_t last_target_global_tsf_time;
 	qdf_mc_timer_t host_capture_req_timer;
 #ifdef WLAN_FEATURE_TSF_PLUS
 	/* spin lock for read/write timestamps */
@@ -1748,6 +1771,7 @@ struct hdd_dynamic_mac {
  * @pdev: object manager pdev context
  * @g_event_flags: a bitmap of hdd_driver_flags
  * @dynamic_nss_chains_support: Per vdev dynamic nss chains update capability
+ * @sar_cmd_params: SAR command params to be configured to the FW
  */
 struct hdd_context {
 	struct wlan_objmgr_psoc *psoc;
@@ -1941,8 +1965,7 @@ struct hdd_context {
 #endif
 	/* Present state of driver cds modules */
 	enum driver_modules_status driver_status;
-	/* interface idle work */
-	qdf_delayed_work_t iface_idle_work;
+	qdf_delayed_work_t psoc_idle_timeout_work;
 	/* Interface change lock */
 	struct mutex iface_change_lock;
 	bool rps;
@@ -2030,6 +2053,8 @@ struct hdd_context {
 	uint32_t num_derived_addr;
 	unsigned long provisioned_intf_addr_mask;
 	unsigned long derived_intf_addr_mask;
+	struct wlan_mlme_chain_cfg fw_chain_cfg;
+	struct sar_limit_cmd_params *sar_cmd_params;
 };
 
 /**
@@ -3088,15 +3113,12 @@ void wlan_hdd_deinit_chan_info(struct hdd_context *hdd_ctx);
 void wlan_hdd_start_sap(struct hdd_adapter *ap_adapter, bool reinit);
 
 /**
- * hdd_check_for_opened_interfaces()- Check for interface up
+ * hdd_is_any_interface_open()- Check for interface up
  * @hdd_ctx: HDD context
  *
- * check  if there are any wlan interfaces before starting the timer
- * to close the modules
- *
- * Return: 0 if interface was opened else false
+ * Return: true if any interface is open
  */
-bool hdd_check_for_opened_interfaces(struct hdd_context *hdd_ctx);
+bool hdd_is_any_interface_open(struct hdd_context *hdd_ctx);
 
 #ifdef WIFI_POS_CONVERGED
 /**
@@ -3617,4 +3639,36 @@ void wlan_hdd_send_tcp_param_update_event(struct hdd_context *hdd_ctx,
  */
 void hdd_hidden_ssid_enable_roaming(hdd_handle_t hdd_handle, uint8_t vdev_id);
 
+/**
+ * hdd_psoc_idle_shutdown - perform idle shutdown after interface inactivity
+ *                          timeout
+ * @hdd_ctx: hdd context
+ *
+ * Return: None
+ */
+void hdd_psoc_idle_shutdown(void *priv);
+
+/**
+ * hdd_psoc_idle_restart - perform idle restart after idle shutdown
+ * @hdd_ctx: hdd context
+ *
+ * Return: 0 for success non-zero error code for failure
+ */
+int hdd_psoc_idle_restart(struct hdd_context *hdd_ctx);
+
+/**
+ * hdd_psoc_idle_timer_start() - start the idle psoc detection timer
+ * @hdd_ctx: the hdd context for which the timer should be started
+ *
+ * Return: None
+ */
+void hdd_psoc_idle_timer_start(struct hdd_context *hdd_ctx);
+
+/**
+ * hdd_psoc_idle_timer_stop() - stop the idle psoc detection timer
+ * @hdd_ctx: the hdd context for which the timer should be stopped
+ *
+ * Return: None
+ */
+void hdd_psoc_idle_timer_stop(struct hdd_context *hdd_ctx);
 #endif /* end #if !defined(WLAN_HDD_MAIN_H) */

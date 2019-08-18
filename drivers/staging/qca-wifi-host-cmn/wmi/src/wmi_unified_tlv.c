@@ -103,9 +103,9 @@ static uint32_t convert_target_pdev_id_to_host_pdev_id(uint32_t pdev_id)
 		return WMI_HOST_PDEV_ID_2;
 	}
 
-	QDF_ASSERT(0);
+	WMI_LOGE("Invalid pdev_id");
 
-	return WMI_HOST_PDEV_ID_SOC;
+	return WMI_HOST_PDEV_ID_INVALID;
 }
 
 /**
@@ -541,12 +541,12 @@ static QDF_STATUS send_vdev_start_cmd_tlv(wmi_unified_t wmi_handle,
 				     cmd->ssid.ssid_len);
 		}
 
-		if (req->hidden_ssid)
-			cmd->flags |= WMI_UNIFIED_VDEV_START_HIDDEN_SSID;
-
 		if (req->pmf_enabled)
 			cmd->flags |= WMI_UNIFIED_VDEV_START_PMF_ENABLED;
 	}
+
+	if (req->hidden_ssid)
+		cmd->flags |= WMI_UNIFIED_VDEV_START_HIDDEN_SSID;
 
 	cmd->flags |= WMI_UNIFIED_VDEV_START_LDPC_RX_ENABLED;
 	cmd->num_noa_descriptors = req->num_noa_descriptors;
@@ -728,6 +728,7 @@ static QDF_STATUS send_peer_unmap_conf_cmd_tlv(wmi_unified_t wmi,
 	wmi_peer_unmap_response_cmd_fixed_param *cmd;
 	uint32_t peer_id_list_len;
 	uint32_t len = sizeof(*cmd);
+	QDF_STATUS status;
 
 	if (!peer_id_cnt || !peer_id_list)
 		return QDF_STATUS_E_FAILURE;
@@ -766,12 +767,13 @@ static QDF_STATUS send_peer_unmap_conf_cmd_tlv(wmi_unified_t wmi,
 	WMI_LOGD("%s: vdev_id %d peer_id_cnt %d", __func__,
 		 vdev_id, peer_id_cnt);
 	wmi_mtrace(WMI_PEER_UNMAP_RESPONSE_CMDID, vdev_id, 0);
-	if (wmi_unified_cmd_send(wmi, buf, len,
-				 WMI_PEER_UNMAP_RESPONSE_CMDID)) {
-		WMI_LOGP("%s: Failed to send peer delete conf command",
-			 __func__);
+	status = wmi_unified_cmd_send(wmi, buf, len,
+				      WMI_PEER_UNMAP_RESPONSE_CMDID);
+	if (QDF_IS_STATUS_ERROR(status)) {
+		WMI_LOGE("%s: Failed to send peer unmap conf command: Err[%d]",
+			 __func__, status);
 		wmi_buf_free(buf);
-		return QDF_STATUS_E_FAILURE;
+		return status;
 	}
 
 	return QDF_STATUS_SUCCESS;
@@ -2837,8 +2839,8 @@ static QDF_STATUS send_scan_start_cmd_tlv(wmi_unified_t wmi_handle,
 	uint32_t *tmp_ptr;
 	wmi_ssid *ssid = NULL;
 	wmi_mac_addr *bssid;
-	int len = sizeof(*cmd);
-	uint8_t extraie_len_with_pad = 0;
+	size_t len = sizeof(*cmd);
+	uint16_t extraie_len_with_pad = 0;
 	uint8_t phymode_roundup = 0;
 	struct probe_req_whitelist_attr *ie_whitelist = &params->ie_whitelist;
 
@@ -4797,10 +4799,11 @@ static QDF_STATUS extract_ocb_dcc_stats_tlv(wmi_unified_t wmi_handle,
 
 	/* Allocate and populate the response */
 	if (fix_param->num_channels > ((WMI_SVC_MSG_MAX_SIZE -
-	    sizeof(*fix_param)) / sizeof(wmi_dcc_ndl_stats_per_channel))) {
-		WMI_LOGE("%s: too many channels:%d", __func__,
-			 fix_param->num_channels);
-		QDF_ASSERT(0);
+	    sizeof(*fix_param)) / sizeof(wmi_dcc_ndl_stats_per_channel)) ||
+	    fix_param->num_channels > param_tlvs->num_stats_per_channel_list) {
+		WMI_LOGW("%s: too many channels:%d actual:%d", __func__,
+			 fix_param->num_channels,
+			 param_tlvs->num_stats_per_channel_list);
 		*resp = NULL;
 		return QDF_STATUS_E_INVAL;
 	}
@@ -5703,9 +5706,10 @@ static QDF_STATUS send_setup_install_key_cmd_tlv(wmi_unified_t wmi_handle,
 	wmi_mtrace(WMI_VDEV_INSTALL_KEY_CMDID, cmd->vdev_id, 0);
 	status = wmi_unified_cmd_send(wmi_handle, buf, len,
 					      WMI_VDEV_INSTALL_KEY_CMDID);
-	if (QDF_IS_STATUS_ERROR(status))
+	if (QDF_IS_STATUS_ERROR(status)) {
+		qdf_mem_zero(wmi_buf_data(buf), len);
 		wmi_buf_free(buf);
-
+	}
 	return status;
 }
 
@@ -13014,6 +13018,10 @@ void wmi_copy_resource_config(wmi_resource_config *resource_cfg,
 		WMI_RSRC_CFG_FLAG_PEER_UNMAP_RESPONSE_SUPPORT_SET(
 						resource_cfg->flag1, 1);
 
+	if (tgt_res_cfg->tstamp64_en)
+		WMI_RSRC_CFG_FLAG_TX_COMPLETION_TX_TSF64_ENABLE_SET(
+						resource_cfg->flag1, 1);
+
 	wmi_copy_twt_resource_config(resource_cfg, tgt_res_cfg);
 }
 
@@ -13286,8 +13294,10 @@ static QDF_STATUS send_log_supported_evt_cmd_tlv(wmi_unified_t wmi_handle,
 			__func__, num_of_diag_events_logs);
 
 	/* Free any previous allocation */
-	if (wmi_handle->events_logs_list)
+	if (wmi_handle->events_logs_list) {
 		qdf_mem_free(wmi_handle->events_logs_list);
+		wmi_handle->events_logs_list = NULL;
+	}
 
 	if (num_of_diag_events_logs >
 		(WMI_SVC_MSG_MAX_SIZE / sizeof(uint32_t))) {
@@ -19104,31 +19114,35 @@ static QDF_STATUS extract_all_stats_counts_tlv(wmi_unified_t wmi_handle,
 
 	switch (ev->stats_id) {
 	case WMI_REQUEST_PEER_STAT:
-		stats_param->stats_id = WMI_HOST_REQUEST_PEER_STAT;
+		stats_param->stats_id |= WMI_HOST_REQUEST_PEER_STAT;
 		break;
 
 	case WMI_REQUEST_AP_STAT:
-		stats_param->stats_id = WMI_HOST_REQUEST_AP_STAT;
+		stats_param->stats_id |= WMI_HOST_REQUEST_AP_STAT;
 		break;
 
 	case WMI_REQUEST_PDEV_STAT:
-		stats_param->stats_id = WMI_HOST_REQUEST_PDEV_STAT;
+		stats_param->stats_id |= WMI_HOST_REQUEST_PDEV_STAT;
 		break;
 
 	case WMI_REQUEST_VDEV_STAT:
-		stats_param->stats_id = WMI_HOST_REQUEST_VDEV_STAT;
+		stats_param->stats_id |= WMI_HOST_REQUEST_VDEV_STAT;
 		break;
 
 	case WMI_REQUEST_BCNFLT_STAT:
-		stats_param->stats_id = WMI_HOST_REQUEST_BCNFLT_STAT;
+		stats_param->stats_id |= WMI_HOST_REQUEST_BCNFLT_STAT;
 		break;
 
 	case WMI_REQUEST_VDEV_RATE_STAT:
-		stats_param->stats_id = WMI_HOST_REQUEST_VDEV_RATE_STAT;
+		stats_param->stats_id |= WMI_HOST_REQUEST_VDEV_RATE_STAT;
 		break;
 
 	case WMI_REQUEST_BCN_STAT:
 		stats_param->stats_id |= WMI_HOST_REQUEST_BCN_STAT;
+		break;
+
+	case WMI_REQUEST_PEER_EXTD2_STAT:
+		stats_param->stats_id |= WMI_HOST_REQUEST_PEER_ADV_STATS;
 		break;
 
 	default:
@@ -19157,6 +19171,7 @@ static QDF_STATUS extract_all_stats_counts_tlv(wmi_unified_t wmi_handle,
 		return QDF_STATUS_E_FAULT;
 	}
 
+	stats_param->last_event = ev->last_event;
 	stats_param->num_pdev_stats = ev->num_pdev_stats;
 	stats_param->num_pdev_ext_stats = 0;
 	stats_param->num_vdev_stats = ev->num_vdev_stats;
@@ -19186,6 +19201,12 @@ static QDF_STATUS extract_all_stats_counts_tlv(wmi_unified_t wmi_handle,
 		return QDF_STATUS_E_INVAL;
 	}
 	stats_param->num_rssi_stats = rssi_event->num_per_chain_rssi_stats;
+
+	/* if peer_adv_stats is not populated */
+	if (!param_buf->num_peer_extd2_stats)
+		return QDF_STATUS_SUCCESS;
+
+	stats_param->num_peer_adv_stats = param_buf->num_peer_extd2_stats;
 
 	return QDF_STATUS_SUCCESS;
 }
@@ -19539,6 +19560,46 @@ static QDF_STATUS extract_peer_stats_tlv(wmi_unified_t wmi_handle,
 static QDF_STATUS extract_bcnflt_stats_tlv(wmi_unified_t wmi_handle,
 	void *evt_buf, uint32_t index, wmi_host_bcnflt_stats *peer_stats)
 {
+	return QDF_STATUS_SUCCESS;
+}
+
+/**
+ * extract_peer_adv_stats_tlv() - extract adv peer stats from event
+ * @wmi_handle: wmi handle
+ * @param evt_buf: pointer to event buffer
+ * @param index: Index into extended peer stats
+ * @param peer_adv_stats: Pointer to hold adv peer stats
+ *
+ * Return: QDF_STATUS_SUCCESS for success or error code
+ */
+static QDF_STATUS extract_peer_adv_stats_tlv(wmi_unified_t wmi_handle,
+					     void *evt_buf,
+					     struct wmi_host_peer_adv_stats
+					     *peer_adv_stats)
+{
+	WMI_UPDATE_STATS_EVENTID_param_tlvs *param_buf;
+	wmi_peer_extd2_stats *adv_stats;
+	int i;
+
+	param_buf = (WMI_UPDATE_STATS_EVENTID_param_tlvs *)evt_buf;
+
+	adv_stats = param_buf->peer_extd2_stats;
+	if (!adv_stats) {
+		WMI_LOGD("%s: no peer_adv stats in event buffer", __func__);
+		return QDF_STATUS_E_INVAL;
+	}
+
+	for (i = 0; i < param_buf->num_peer_extd2_stats; i++) {
+		WMI_MAC_ADDR_TO_CHAR_ARRAY(&adv_stats[i].peer_macaddr,
+					   peer_adv_stats[i].peer_macaddr);
+		peer_adv_stats[i].fcs_count = adv_stats[i].rx_fcs_err;
+		peer_adv_stats[i].rx_bytes =
+				(uint64_t)adv_stats[i].rx_bytes_u32 <<
+				WMI_LOWER_BITS_SHIFT_32 |
+				adv_stats[i].rx_bytes_l32;
+		peer_adv_stats[i].rx_count = adv_stats[i].rx_mpdus;
+	}
+
 	return QDF_STATUS_SUCCESS;
 }
 
@@ -21154,6 +21215,9 @@ static QDF_STATUS extract_dfs_radar_detection_event_tlv(
 	radar_event = param_tlv->fixed_param;
 	radar_found->pdev_id = convert_target_pdev_id_to_host_pdev_id(
 			radar_event->pdev_id);
+	if (radar_found->pdev_id == WMI_HOST_PDEV_ID_INVALID)
+		return QDF_STATUS_E_FAILURE;
+
 	radar_found->detection_mode = radar_event->detection_mode;
 	radar_found->chan_freq = radar_event->chan_freq;
 	radar_found->chan_width = radar_event->chan_width;
@@ -22780,6 +22844,51 @@ static QDF_STATUS extract_single_phyerr_tlv(wmi_unified_t wmi_handle,
 	return QDF_STATUS_SUCCESS;
 }
 
+#ifdef WLAN_MWS_INFO_DEBUGFS
+/**
+ * send_mws_coex_status_req_cmd_tlv() - send coex cmd to fw
+ *
+ * @wmi_handle: wmi handle
+ * @vdev_id: vdev id
+ * @cmd_id: Coex command id
+ *
+ * Send WMI_VDEV_GET_MWS_COEX_INFO_CMDID to fw.
+ *
+ * Return: QDF_STATUS
+ */
+static QDF_STATUS send_mws_coex_status_req_cmd_tlv(wmi_unified_t wmi_handle,
+						   uint32_t vdev_id,
+						   uint32_t cmd_id)
+{
+	wmi_buf_t buf;
+	wmi_vdev_get_mws_coex_info_cmd_fixed_param *cmd;
+	uint16_t len = sizeof(*cmd);
+	int ret;
+
+	buf = wmi_buf_alloc(wmi_handle, len);
+	if (!buf) {
+		WMI_LOGE("%s: Failed to allocate wmi buffer", __func__);
+		return QDF_STATUS_E_NOMEM;
+	}
+
+	cmd = (wmi_vdev_get_mws_coex_info_cmd_fixed_param *)wmi_buf_data(buf);
+	WMITLV_SET_HDR(&cmd->tlv_header,
+		WMITLV_TAG_STRUC_wmi_vdev_get_mws_coex_info_cmd_fixed_param,
+		       WMITLV_GET_STRUCT_TLVLEN
+		      (wmi_vdev_get_mws_coex_info_cmd_fixed_param));
+	cmd->vdev_id = vdev_id;
+	cmd->cmd_id  = cmd_id;
+	wmi_mtrace(WMI_VDEV_GET_MWS_COEX_INFO_CMDID, vdev_id, 0);
+	ret = wmi_unified_cmd_send(wmi_handle, buf, len,
+				   WMI_VDEV_GET_MWS_COEX_INFO_CMDID);
+	if (QDF_IS_STATUS_ERROR(ret)) {
+		WMI_LOGE("Failed to send set param command ret = %d", ret);
+		wmi_buf_free(buf);
+	}
+	return ret;
+}
+#endif
+
 struct wmi_ops tlv_ops =  {
 	.send_vdev_create_cmd = send_vdev_create_cmd_tlv,
 	.send_vdev_delete_cmd = send_vdev_delete_cmd_tlv,
@@ -23138,6 +23247,7 @@ struct wmi_ops tlv_ops =  {
 	.extract_bcn_stats = extract_bcn_stats_tlv,
 	.extract_bcnflt_stats = extract_bcnflt_stats_tlv,
 	.extract_peer_extd_stats = extract_peer_extd_stats_tlv,
+	.extract_peer_adv_stats = extract_peer_adv_stats_tlv,
 	.extract_chan_stats = extract_chan_stats_tlv,
 	.extract_profile_ctx = extract_profile_ctx_tlv,
 	.extract_profile_data = extract_profile_data_tlv,
@@ -23282,6 +23392,9 @@ struct wmi_ops tlv_ops =  {
 #endif
 	.send_roam_scan_stats_cmd = send_roam_scan_stats_cmd_tlv,
 	.extract_roam_scan_stats_res_evt = extract_roam_scan_stats_res_evt_tlv,
+#ifdef WLAN_MWS_INFO_DEBUGFS
+	.send_mws_coex_status_req_cmd = send_mws_coex_status_req_cmd_tlv,
+#endif
 };
 
 /**
@@ -23582,6 +23695,22 @@ static void populate_tlv_events_id(uint32_t *event_ids)
 	event_ids[wmi_vdev_bcn_reception_stats_event_id] =
 		WMI_VDEV_BCN_RECEPTION_STATS_EVENTID;
 	event_ids[wmi_roam_blacklist_event_id] = WMI_ROAM_BLACKLIST_EVENTID;
+	event_ids[wmi_pdev_cold_boot_cal_event_id] =
+					    WMI_PDEV_COLD_BOOT_CAL_DATA_EVENTID;
+#ifdef WLAN_MWS_INFO_DEBUGFS
+	event_ids[wmi_vdev_get_mws_coex_state_eventid] =
+			WMI_VDEV_GET_MWS_COEX_STATE_EVENTID;
+	event_ids[wmi_vdev_get_mws_coex_dpwb_state_eventid] =
+			WMI_VDEV_GET_MWS_COEX_DPWB_STATE_EVENTID;
+	event_ids[wmi_vdev_get_mws_coex_tdm_state_eventid] =
+			WMI_VDEV_GET_MWS_COEX_TDM_STATE_EVENTID;
+	event_ids[wmi_vdev_get_mws_coex_idrx_state_eventid] =
+			WMI_VDEV_GET_MWS_COEX_IDRX_STATE_EVENTID;
+	event_ids[wmi_vdev_get_mws_coex_antenna_sharing_state_eventid] =
+			WMI_VDEV_GET_MWS_COEX_ANTENNA_SHARING_STATE_EVENTID;
+#endif
+	event_ids[wmi_coex_report_antenna_isolation_event_id] =
+				WMI_COEX_REPORT_ANTENNA_ISOLATION_EVENTID;
 }
 
 /**
@@ -23812,6 +23941,10 @@ static void populate_tlv_service(uint32_t *wmi_service)
 			WMI_SERVICE_BEACON_RECEPTION_STATS;
 	wmi_service[wmi_service_vdev_latency_config] =
 			WMI_SERVICE_VDEV_LATENCY_CONFIG;
+	wmi_service[wmi_service_sta_plus_sta_support] =
+				WMI_SERVICE_STA_PLUS_STA_SUPPORT;
+	wmi_service[wmi_service_tx_compl_tsf64] =
+			WMI_SERVICE_TX_COMPL_TSF64;
 }
 
 #ifndef CONFIG_MCL

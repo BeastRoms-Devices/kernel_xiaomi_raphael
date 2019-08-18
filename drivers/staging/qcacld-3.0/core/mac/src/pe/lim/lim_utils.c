@@ -4295,8 +4295,14 @@ void lim_update_sta_run_time_ht_switch_chnl_params(tpAniSirGlobal pMac,
 		return;
 	}
 
-	if (!pHTInfo->primaryChannel) {
-		pe_debug("Ignore as primary channel is 0 in HT info");
+	if (reg_get_chan_enum(pHTInfo->primaryChannel) == INVALID_CHANNEL) {
+		pe_debug("Ignore Invalid channel in HT info");
+		return;
+	}
+
+	/* If channel mismatch the CSA will take care of this change */
+	if (pHTInfo->primaryChannel != psessionEntry->currentOperChannel) {
+		pe_debug("Current channel doesnt match HT info ignore");
 		return;
 	}
 
@@ -8142,8 +8148,7 @@ lim_rem_blacklist_entry_with_lowest_delta(qdf_list_t *list)
 }
 
 void lim_assoc_rej_add_to_rssi_based_reject_list(tpAniSirGlobal mac_ctx,
-	tDot11fTLVrssi_assoc_rej  *rssi_assoc_rej,
-	tSirMacAddr bssid, int8_t rssi)
+					struct sir_rssi_disallow_lst *ap_info)
 {
 	struct sir_rssi_disallow_lst *entry;
 	QDF_STATUS status = QDF_STATUS_SUCCESS;
@@ -8154,20 +8159,17 @@ void lim_assoc_rej_add_to_rssi_based_reject_list(tpAniSirGlobal mac_ctx,
 		return;
 	}
 
-	pe_debug("%pM: assoc resp rssi %d, delta rssi %d retry delay %d sec and list size %d",
-		bssid, rssi, rssi_assoc_rej->delta_rssi,
-		rssi_assoc_rej->retry_delay,
-		qdf_list_size(&mac_ctx->roam.rssi_disallow_bssid));
+	pe_debug("%pM: assoc resp, expected rssi %d retry delay %d sec and list size %d",
+		 ap_info->bssid.bytes, ap_info->expected_rssi,
+		 ap_info->retry_delay,
+		 qdf_list_size(&mac_ctx->roam.rssi_disallow_bssid));
 
-	qdf_mem_copy(entry->bssid.bytes,
-		bssid, QDF_MAC_ADDR_SIZE);
-	entry->retry_delay = rssi_assoc_rej->retry_delay *
-		QDF_MC_TIMER_TO_MS_UNIT;
-	entry->expected_rssi = rssi + rssi_assoc_rej->delta_rssi;
+	*entry = *ap_info;
 	entry->time_during_rejection =
 		qdf_do_div(qdf_get_monotonic_boottime(),
 		QDF_MC_TIMER_TO_MS_UNIT);
 
+	qdf_mutex_acquire(&mac_ctx->roam.rssi_disallow_bssid_lock);
 	if (qdf_list_size(&mac_ctx->roam.rssi_disallow_bssid) >=
 		MAX_RSSI_AVOID_BSSID_LIST) {
 		status = lim_rem_blacklist_entry_with_lowest_delta(
@@ -8180,6 +8182,7 @@ void lim_assoc_rej_add_to_rssi_based_reject_list(tpAniSirGlobal mac_ctx,
 		status = qdf_list_insert_back(
 				&mac_ctx->roam.rssi_disallow_bssid,
 				&entry->node);
+	qdf_mutex_release(&mac_ctx->roam.rssi_disallow_bssid_lock);
 
 	if (QDF_IS_STATUS_ERROR(status)) {
 		pe_err("Failed to enqueue bssid entry");

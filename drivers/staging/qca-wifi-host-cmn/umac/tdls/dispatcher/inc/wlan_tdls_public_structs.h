@@ -78,6 +78,8 @@
 #define TDLS_TEARDOWN_PEER_UNSPEC_REASON 26
 
 #define INVALID_TDLS_PEER_ID 0xFF
+#define INVALID_TDLS_PEER_INDEX 0xFF
+
 #define TDLS_STA_INDEX_CHECK(sta_id) \
 	(((sta_id) >= 0) && ((sta_id) < 0xFF))
 /**
@@ -540,7 +542,7 @@ typedef void (*tdls_rx_callback)(void *user_data,
  *
  * Return: true or false
  */
-typedef bool (*tdls_wmm_check)(struct wlan_objmgr_vdev **vdev);
+typedef bool (*tdls_wmm_check)(uint8_t vdev_id);
 
 
 /* This callback is used to report state change of peer to wpa_supplicant */
@@ -583,6 +585,27 @@ typedef void (*tdls_offchan_parms_callback)(struct wlan_objmgr_vdev *vdev);
 typedef void (*tdls_delete_all_peers_callback)(struct wlan_objmgr_vdev *vdev);
 
 /**
+ * tdls_vdev_init_cb() - Callback for initializing the tdls private structure
+ * @vdev: vdev object
+ *
+ * This callback will be used to create the vdev private object and store
+ * in os_priv.
+ *
+ * Return: QDF_STATUS
+ */
+typedef QDF_STATUS (*tdls_vdev_init_cb)(struct wlan_objmgr_vdev *vdev);
+
+/**
+ * tdls_vdev_deinit_cb() - Callback for deinitializing the tdls private struct
+ * @vdev: vdev object
+ *
+ * This callback will be used to destroy the vdev private object.
+ *
+ * Return: None
+ */
+typedef void (*tdls_vdev_deinit_cb)(struct wlan_objmgr_vdev *vdev);
+
+/**
  * struct tdls_start_params - tdls start params
  * @config: tdls user config
  * @tdls_send_mgmt_req: pass eWNI_SME_TDLS_SEND_MGMT_REQ value
@@ -597,6 +620,8 @@ typedef void (*tdls_delete_all_peers_callback)(struct wlan_objmgr_vdev *vdev);
  * @tdls_reg_peer: register tdls peer with datapath
  * @tdls_dereg_peer: deregister tdls peer from datapath
  * @tdls_dp_vdev_update: update vdev flags in datapath
+ * @tdls_osif_init_cb: callback to initialize the tdls priv
+ * @tdls_osif_deinit_cb: callback to deinitialize the tdls priv
  */
 struct tdls_start_params {
 	struct tdls_user_config config;
@@ -616,6 +641,8 @@ struct tdls_start_params {
 	tdls_register_peer_callback tdls_reg_peer;
 	tdls_deregister_peer_callback tdls_dereg_peer;
 	tdls_dp_vdev_update_flags_callback tdls_dp_vdev_update;
+	tdls_vdev_init_cb tdls_osif_init_cb;
+	tdls_vdev_deinit_cb tdls_osif_deinit_cb;
 };
 
 /**
@@ -978,24 +1005,20 @@ struct tdls_send_mgmt {
 
 /**
  * struct tdls_validate_action_req - tdls validate mgmt request
- * @vdev: vdev object
  * @action_code: action code
  * @peer_mac: peer mac address
  * @dialog_token: dialog code
  * @status_code: status code to add
  * @len: len of the frame
  * @responder: whether to respond or not
- * @max_sta_failed: mgmt failure reason
  */
 struct tdls_validate_action_req {
-	struct wlan_objmgr_vdev *vdev;
 	uint8_t action_code;
 	uint8_t peer_mac[QDF_MAC_ADDR_SIZE];
 	uint8_t dialog_token;
 	uint8_t status_code;
 	size_t len;
 	int responder;
-	int max_sta_failed;
 };
 
 /**
@@ -1013,7 +1036,7 @@ struct tdls_get_all_peers {
 /**
  * struct tdls_send_action_frame_request - tdls send mgmt request
  * @vdev: vdev object
- * @chk_frame: frame validation structure
+ * @chk_frame: This struct used to validate mgmt frame
  * @session_id: session id
  * @vdev_id: vdev id
  * @cmd_buf: cmd buffer
@@ -1023,7 +1046,7 @@ struct tdls_get_all_peers {
  */
 struct tdls_action_frame_request {
 	struct wlan_objmgr_vdev *vdev;
-	struct tdls_validate_action_req *chk_frame;
+	struct tdls_validate_action_req chk_frame;
 	uint8_t session_id;
 	uint8_t vdev_id;
 	const uint8_t *cmd_buf;

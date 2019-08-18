@@ -82,7 +82,8 @@ typedef qdf_nbuf_t wmi_buf_t;
 #define WMI_LOGP(args ...) \
 	QDF_TRACE(QDF_MODULE_ID_WMI, QDF_TRACE_LEVEL_FATAL, ## args)
 
-
+/* Number of bits to shift to combine 32 bit integer to 64 bit */
+#define WMI_LOWER_BITS_SHIFT_32	0x20
 
 #define PHYERROR_MAX_BUFFER_LENGTH 0x7F000000
 
@@ -1742,6 +1743,10 @@ QDF_STATUS wmi_extract_peer_extd_stats(void *wmi_hdl, void *evt_buf,
 			uint32_t index,
 			wmi_host_peer_extd_stats *peer_extd_stats);
 
+QDF_STATUS wmi_extract_peer_adv_stats(wmi_unified_t wmi_handle, void *evt_buf,
+				      struct wmi_host_peer_adv_stats
+				      *peer_adv_stats);
+
 QDF_STATUS wmi_extract_bss_chan_info_event(void *wmi_hdl, void *evt_buf,
 			wmi_host_pdev_bss_chan_info_event *bss_chan_info);
 
@@ -2445,4 +2450,16 @@ QDF_STATUS wmi_extract_dfs_status_from_fw(void *wmi_hdl, void *evt_buf,
 void wmi_process_fw_event_worker_thread_ctx(struct wmi_unified *wmi_handle,
 					    HTC_PACKET *htc_packet);
 
+/**
+ * wmi_unified_send_mws_coex_req_cmd() - WMI function to send coex req cmd
+ * @wmi_hdl: wmi handle
+ * @vdev_id: Vdev Id
+ * @cmd_id: Coex cmd for which info is required
+ *
+ * Send wmi coex command to fw.
+ *
+ * Return: QDF_STATUS
+ */
+QDF_STATUS wmi_unified_send_mws_coex_req_cmd(struct wmi_unified *wmi_handle,
+					     uint32_t vdev_id, uint32_t cmd_id);
 #endif /* _WMI_UNIFIED_API_H_ */

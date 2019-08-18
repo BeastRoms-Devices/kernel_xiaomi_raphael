@@ -155,7 +155,7 @@ config WLAN_FEATURE_DFS_OFFLOAD
 config WLAN_FEATURE_SARV1_TO_SARV2
 	bool "Enable conversion of SAR v1 to v2 feature"
 	default n
-
+	
 config FEATURE_PKTLOG
 	bool "Packet log"
 	default n
@@ -166,7 +166,7 @@ config FEATURE_PKTLOG
 config QCA_CLD_DEBUG
 	bool "Debug Qualcomm Atheros CLD WLAN module"
 	default n
-
+	
 config WLAN_DEBUG
 	bool "Also debugging for qcacld driver"
 	default n
