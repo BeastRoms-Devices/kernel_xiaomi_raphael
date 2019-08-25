@@ -52,7 +52,7 @@ MODULE_DEVICE_TABLE(of, msm_match_table);
 #define CLASS_NAME	"nqx"
 #define MAX_BUFFER_SIZE			(320)
 #define WAKEUP_SRC_TIMEOUT		(2000)
-#define MAX_RETRY_COUNT			3
+#define MAX_RETRY_COUNT			6
 #define NCI_RESET_CMD_LEN		4
 #define NCI_RESET_RSP_LEN		4
 #define NCI_RESET_NTF_LEN		13
@@ -109,39 +109,6 @@ static struct notifier_block nfcc_notifier = {
 };
 
 unsigned int	disable_ctrl;
-
-#define MAX_I2C_DUMP_SIZE 512
-#define DUMP_TRANSCIEVING_BUF 0
-
-#if DUMP_TRANSCIEVING_BUF
-static void print_send_buffer(struct nqx_dev *nqx_dev, unsigned char *buf, int len)
-{
-	unsigned char output[MAX_I2C_DUMP_SIZE * 2 + 1];
-	int i;
-
-	if (len > MAX_I2C_DUMP_SIZE)
-		len = MAX_I2C_DUMP_SIZE - 1;
-
-	for (i = 0; i < len; i++) {
-		snprintf(output + i * 2, 3, "%02x ", buf[i]);
-	}
-	dev_warn(&nqx_dev->client->dev, "%3d > %s\n", len, output);
-}
-
-static void print_recv_buffer(struct nqx_dev *nqx_dev, unsigned char *buf, int len)
-{
-	unsigned char output[MAX_I2C_DUMP_SIZE * 2 + 1];
-	int i;
-
-	if (len > MAX_I2C_DUMP_SIZE)
-		len = MAX_I2C_DUMP_SIZE - 1;
-
-	for (i = 0; i < len; i++) {
-		snprintf(output + i * 2, 3, "%02x ", buf[i]);
-	}
-	dev_warn(&nqx_dev->client->dev, "%3d < %s\n", len, output);
-}
-#endif
 
 static void nqx_init_stat(struct nqx_dev *nqx_dev)
 {
@@ -274,9 +241,6 @@ static ssize_t nfc_read(struct file *filp, char __user *buf,
 		dev_dbg(&nqx_dev->client->dev, "%s : NfcNciRx %x %x %x\n",
 			__func__, tmp[0], tmp[1], tmp[2]);
 #endif
-#if DUMP_TRANSCIEVING_BUF
-	print_recv_buffer(nqx_dev, tmp, ret);
-#endif
 	if (copy_to_user(buf, tmp, ret)) {
 		dev_warn(&nqx_dev->client->dev,
 			"%s : failed to copy to user space\n", __func__);
@@ -330,9 +294,6 @@ static ssize_t nfc_write(struct file *filp, const char __user *buf,
 			"%s : i2c-%d: NfcNciTx %x %x %x\n",
 			__func__, iminor(file_inode(filp)),
 			tmp[0], tmp[1], tmp[2]);
-#endif
-#if DUMP_TRANSCIEVING_BUF
-	print_send_buffer(nqx_dev, tmp, count);
 #endif
 	usleep_range(1000, 1100);
 out_free:
@@ -832,12 +793,6 @@ static const struct file_operations nfc_dev_fops = {
 #endif
 };
 
-/**
- * Do not need check availability of NFCC.
- * This function will block NFCC to enter FW download mode.
- */
-
-#if 0
 /* Check for availability of NQ_ NFC controller hardware */
 static int nfcc_hw_check(struct i2c_client *client, struct nqx_dev *nqx_dev)
 {
@@ -1053,7 +1008,6 @@ done:
 
 	return ret;
 }
-#endif
 
 /*
  * Routine to enable clock.
@@ -1380,8 +1334,6 @@ static int nqx_probe(struct i2c_client *client,
 	}
 	nqx_disable_irq(nqx_dev);
 
-	/* Do not perform nfcc_hw_check, make sure that nfcc is present */
-#if 0
 	/*
 	 * To be efficient we need to test whether nfcc hardware is physically
 	 * present before attempting further hardware initialisation.
@@ -1394,7 +1346,6 @@ static int nqx_probe(struct i2c_client *client,
 		/* We don't think there is hardware switch NFC OFF */
 		goto err_request_hw_check_failed;
 	}
-#endif
 
 	/* Register reboot notifier here */
 	r = register_reboot_notifier(&nfcc_notifier);
